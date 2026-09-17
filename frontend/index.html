@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Speech Coach</title>
+<style>
+  :root {
+    --bg: #0f1115; --panel: #171a21; --border: #2a2f3a; --text: #e6e8ee;
+    --muted: #9aa2b1; --accent: #5b8def; --flag: #e5484d; --watch: #f2b705; --info: #34d399;
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font-family: -apple-system, Segoe UI, Roboto, sans-serif; }
+  .wrap { max-width: 880px; margin: 0 auto; padding: 32px 20px 80px; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  .sub { color: var(--muted); font-size: 13px; margin-bottom: 24px; }
+  .drop {
+    border: 2px dashed var(--border); border-radius: 10px; padding: 40px 20px;
+    text-align: center; cursor: pointer; transition: border-color .15s;
+  }
+  .drop.hover { border-color: var(--accent); }
+  .drop input { display:none; }
+  .drop p { margin: 6px 0; color: var(--muted); font-size: 14px; }
+  .drop strong { color: var(--text); }
+  button.primary {
+    background: var(--accent); color:#fff; border:none; border-radius:6px;
+    padding: 10px 18px; font-size:14px; cursor:pointer;
+  }
+  button.primary:disabled { opacity:.5; cursor:default; }
+  .status { margin-top: 16px; font-size: 13px; color: var(--muted); }
+  .progress {
+    margin-top: 16px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 13px; color: var(--muted); white-space: pre;
+  }
+  .progress .bar-fill { color: var(--accent); }
+  .progress .stage { color: var(--text); }
+  .diarize-toggle {
+    display: flex; align-items: center; gap: 8px; margin-top: 12px;
+    font-size: 13px; color: var(--muted); cursor: pointer;
+  }
+  .diarize-toggle input { cursor: pointer; }
+  .talk-ratio-row { display: flex; align-items: center; gap: 10px; margin: 10px 0; font-size: 13px; }
+  .talk-ratio-label { width: 110px; flex-shrink: 0; }
+  .talk-ratio-track { flex: 1; height: 18px; background: var(--border); border-radius: 4px; overflow: hidden; display: flex; }
+  .talk-ratio-fill { height: 100%; }
+  .talk-ratio-fill.role-a { background: var(--accent); }
+  .talk-ratio-fill.role-b { background: var(--info); }
+  .talk-ratio-pct { width: 46px; text-align: right; flex-shrink: 0; color: var(--muted); }
+  .role-swap { font-size: 12px; color: var(--accent); cursor: pointer; background: none; border: 1px solid var(--border); border-radius: 6px; padding: 3px 8px; margin-left: 8px; }
+  .conv-stats { font-size: 13px; color: var(--muted); margin-top: 8px; }
+  .conv-stats b { color: var(--text); }
+  .panel { background: var(--panel); border:1px solid var(--border); border-radius:10px; padding:18px 20px; margin-top:20px; }
+  .panel h2 { font-size:14px; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); margin:0 0 12px; }
+  table { width:100%; border-collapse: collapse; font-size: 13px; }
+  td, th { padding: 6px 8px; border-bottom: 1px solid var(--border); text-align:left; }
+  th { color: var(--muted); font-weight: 500; }
+  .tree { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; line-height: 1.8; white-space: pre-wrap; }
+  .sev-flag { color: var(--flag); }
+  .sev-watch { color: var(--watch); }
+  .sev-info { color: var(--info); }
+  .transcript { font-size: 13px; line-height: 1.6; color: var(--muted); max-height: 220px; overflow-y:auto; }
+  .llm { font-size: 14px; line-height: 1.6; }
+  .err { color: var(--flag); font-size: 13px; margin-top: 12px; }
+  .assumptions { font-size: 12px; color: var(--muted); margin-top: 40px; border-top:1px solid var(--border); padding-top:16px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Speech Coach</h1>
+  <div class="sub">Upload a single-speaker recording (practice run, presentation, your side of a call). Analyzed fully locally.</div>
+
+  <div class="drop" id="drop">
+    <input type="file" id="fileInput" accept=".wav,.mp3,.m4a,.mp4,.ogg,.flac,.webm">
+    <p><strong>Click to choose a file</strong> or drag one here</p>
+    <p>wav · mp3 · m4a · mp4 · ogg · flac · webm — up to 200MB</p>
+  </div>
+
+  <label class="diarize-toggle">
+    <input type="checkbox" id="diarizeCheck">
+    Two speakers (interviewer / interviewee): detect talk-ratio and interruptions
+  </label>
+
+  <div class="status" id="status"></div>
+  <div class="progress" id="progress"></div>
+  <div id="results"></div>
+
+  <div class="assumptions">
+    Thresholds (pace, filler/hedge rate, pitch variation, pause frequency) are heuristic
+    starting points, not clinical norms: treat findings as signal to investigate, not verdicts.
+    "Two speakers" mode identifies who's talking via voice, not identity; which speaker is
+    labeled Interviewer vs Interviewee is a guess (more questions asked, relative to their own
+    talk time) and can be wrong; use the swap button if it picked the wrong one.
+  </div>
+</div>
+
+<script>
+const drop = document.getElementById('drop');
+const fileInput = document.getElementById('fileInput');
+const diarizeCheck = document.getElementById('diarizeCheck');
+const statusEl = document.getElementById('status');
+const progressEl = document.getElementById('progress');
+const resultsEl = document.getElementById('results');
+let rolesSwapped = false;
+let lastReport = null;
+
+function swapRoles() {
+  rolesSwapped = !rolesSwapped;
+  if (lastReport) render(lastReport);
+}
+
+drop.addEventListener('click', () => fileInput.click());
+drop.addEventListener('dragover', e => { e.preventDefault(); drop.classList.add('hover'); });
+drop.addEventListener('dragleave', () => drop.classList.remove('hover'));
+drop.addEventListener('drop', e => {
+  e.preventDefault(); drop.classList.remove('hover');
+  if (e.dataTransfer.files.length) handleFile(e.dataTransfer.files[0]);
+});
+fileInput.addEventListener('change', () => {
+  if (fileInput.files.length) handleFile(fileInput.files[0]);
+});
+
+function fmtTime(sec) {
+  if (sec == null || !isFinite(sec) || sec < 0) return '--:--';
+  const m = Math.floor(sec / 60), s = Math.round(sec % 60);
+  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+}
+
+function tqdmBar(frac, width = 28) {
+  const filled = Math.max(0, Math.min(width, Math.round(frac * width)));
+  return '█'.repeat(filled) + '░'.repeat(width - filled);
+}
+
+function renderProgress(evt) {
+  if (evt.stage === 'decoding') {
+    progressEl.innerHTML = `<span class="stage">Decoding audio...</span>`;
+  } else if (evt.stage === 'transcribing') {
+    const pct = Math.round((evt.progress || 0) * 100);
+    const bar = tqdmBar(evt.progress || 0);
+    progressEl.innerHTML =
+      `<span class="stage">Transcribing</span>  ` +
+      `<span class="bar-fill">${bar}</span> ${String(pct).padStart(3)}%  ` +
+      `${fmtTime(evt.processed_sec)} / ${fmtTime(evt.duration_sec)}  ` +
+      `elapsed ${fmtTime(evt.elapsed_sec)}  ETA ${fmtTime(evt.eta_sec)}`;
+  } else if (evt.stage === 'analyzing') {
+    progressEl.innerHTML = `<span class="stage">Analyzing acoustics...</span>`;
+  } else if (evt.stage === 'diarizing') {
+    const pct = Math.round((evt.progress || 0) * 100);
+    const bar = tqdmBar(evt.progress || 0);
+    progressEl.innerHTML =
+      `<span class="stage">Identifying speakers (${escapeHtml(evt.step || '')})</span>  ` +
+      `<span class="bar-fill">${bar}</span> ${String(pct).padStart(3)}%`;
+  } else if (evt.stage === 'diarization_error') {
+    progressEl.innerHTML = `<span class="stage">Speaker detection failed, continuing without it: ${escapeHtml(evt.message || '')}</span>`;
+  }
+}
+
+async function handleFile(file) {
+  resultsEl.innerHTML = '';
+  progressEl.textContent = '';
+  statusEl.textContent = `Analyzing "${file.name}"...`;
+
+  rolesSwapped = false;
+  const form = new FormData();
+  form.append('file', file);
+  form.append('diarize', diarizeCheck.checked ? 'true' : 'false');
+
+  try {
+    const resp = await fetch('/api/analyze', { method: 'POST', body: form });
+    if (!resp.ok) {
+      // non-streaming error path (bad file type / too large, rejected before streaming starts)
+      let detail = 'Analysis failed.';
+      try { detail = (await resp.json()).detail || detail; } catch (_) {}
+      statusEl.textContent = '';
+      progressEl.textContent = '';
+      resultsEl.innerHTML = `<div class="err">${detail}</div>`;
+      return;
+    }
+
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+
+      let nl;
+      while ((nl = buf.indexOf('\n')) >= 0) {
+        const line = buf.slice(0, nl).trim();
+        buf = buf.slice(nl + 1);
+        if (!line) continue;
+
+        const evt = JSON.parse(line);
+        if (evt.stage === 'error') {
+          statusEl.textContent = '';
+          progressEl.textContent = '';
+          resultsEl.innerHTML = `<div class="err">${escapeHtml(evt.message || 'Analysis failed.')}</div>`;
+          return;
+        }
+        if (evt.stage === 'done') {
+          statusEl.textContent = 'Done.';
+          progressEl.textContent = '';
+          lastReport = evt.report;
+          render(lastReport);
+          return;
+        }
+        renderProgress(evt);
+      }
+    }
+  } catch (err) {
+    statusEl.textContent = '';
+    progressEl.textContent = '';
+    resultsEl.innerHTML = `<div class="err">Request failed: ${err}</div>`;
+  }
+}
+
+function sevClass(s) { return s === 'flag' ? 'sev-flag' : s === 'watch' ? 'sev-watch' : 'sev-info'; }
+function sevSymbol(s) { return s === 'flag' ? '✖' : s === 'watch' ? '△' : '✔'; }
+
+function render(data) {
+  const L = data.linguistics, P = data.pauses, Pr = data.prosody;
+
+  let html = '';
+
+  if (data.llm_summary) {
+    html += panel('Coaching Summary', `<div class="llm">${escapeHtml(data.llm_summary)}</div>`);
+  }
+
+  if (data.conversation) {
+    html += conversationPanel(data.conversation);
+  }
+
+  const findingsTree = data.findings.map(f =>
+    `<span class="${sevClass(f.severity)}">${sevSymbol(f.severity)} [${f.category}]</span> ${escapeHtml(f.message)}\n  └─ ${escapeHtml(f.evidence)}`
+  ).join('\n\n');
+  html += panel('Findings', `<div class="tree">${findingsTree}</div>`);
+
+  html += panel('Speech Metrics', `
+    <table>
+      <tr><th>Metric</th><th>Value</th></tr>
+      <tr><td>Duration</td><td>${L.duration_sec}s</td></tr>
+      <tr><td>Speaking rate</td><td>${L.wpm} wpm</td></tr>
+      <tr><td>Word count</td><td>${L.word_count}</td></tr>
+      <tr><td>Filler rate</td><td>${L.filler_rate_per_min}/min (${L.filler_count} total)</td></tr>
+      <tr><td>Hedge rate</td><td>${L.hedge_rate_per_min}/min (${L.hedge_count} total)</td></tr>
+      <tr><td>Avg sentence length</td><td>${L.avg_sentence_len_words} words</td></tr>
+      <tr><td>Pauses (>0.4s)</td><td>${P.pause_count} (longest ${P.longest_pause_sec}s)</td></tr>
+      <tr><td>Long pauses (>1.2s)</td><td>${P.long_pause_count}</td></tr>
+      <tr><td>Pitch mean / variation</td><td>${Pr.pitch_mean_hz ?? '—'} Hz / CV ${Pr.pitch_cv ?? '—'}</td></tr>
+      <tr><td>Intensity mean</td><td>${Pr.intensity_mean_db ?? '—'} dB</td></tr>
+    </table>
+  `);
+
+  html += panel('Transcript', `<div class="transcript">${escapeHtml(data.transcript)}</div>`);
+
+  resultsEl.innerHTML = html;
+}
+
+function displayRole(role) {
+  if (!rolesSwapped) return role;
+  if (role === 'Interviewer') return 'Interviewee';
+  if (role === 'Interviewee') return 'Interviewer';
+  return role;
+}
+
+function conversationPanel(conv) {
+  const speakers = conv.speakers.slice().sort((a, b) => (a.role < b.role ? -1 : 1));
+
+  const bars = speakers.map((s, i) => {
+    const role = displayRole(s.role);
+    const pct = Math.round(s.talk_ratio * 100);
+    return `
+      <div class="talk-ratio-row">
+        <div class="talk-ratio-label">${escapeHtml(role)}</div>
+        <div class="talk-ratio-track">
+          <div class="talk-ratio-fill role-${i === 0 ? 'a' : 'b'}" style="width:${pct}%"></div>
+        </div>
+        <div class="talk-ratio-pct">${pct}%</div>
+      </div>`;
+  }).join('');
+
+  const interruptionsByRole = {};
+  conv.interruptions.forEach(ev => {
+    const r = displayRole(ev.interrupter_role);
+    interruptionsByRole[r] = (interruptionsByRole[r] || 0) + 1;
+  });
+  const interruptionSummary = Object.keys(interruptionsByRole).length
+    ? Object.entries(interruptionsByRole).map(([role, n]) => `${escapeHtml(role)} interrupted ${n}x`).join(', ')
+    : 'none detected';
+
+  return panel('Conversation',
+    `${bars}
+     <button class="role-swap" onclick="swapRoles()">Swap Interviewer / Interviewee labels</button>
+     <div class="conv-stats">
+       <b>${conv.turn_count}</b> speaker turns, avg <b>${conv.avg_turn_sec}s</b> per turn,
+       avg <b>${conv.avg_turn_gap_sec}s</b> gap between turns.<br>
+       Interruptions (overlapping speech &gt;0.3s): <b>${conv.interruptions.length}</b> (${interruptionSummary}).
+     </div>`
+  );
+}
+
+function panel(title, body) {
+  return `<div class="panel"><h2>${title}</h2>${body}</div>`;
+}
+function escapeHtml(s) {
+  return (s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+</script>
+</body>
+</html>
