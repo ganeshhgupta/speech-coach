@@ -9,6 +9,7 @@ called the interviewer, ties broken toward whoever talked less overall.
 It can be wrong; the frontend lets you swap the labels.
 """
 from .schema import Word
+from .question_quality import analyze_questions
 
 MIN_INTERRUPTION_SEC = 0.3  # overlaps shorter than this are treated as backchannel noise, not a real interruption
 
@@ -70,6 +71,8 @@ def compute_conversation(turns: list[dict], exclusive_turns: list[dict], words: 
         "interrupted_role": roles.get(ev["interrupted"], ev["interrupted"]),
     } for ev in interruption_events]
 
+    question_analysis = analyze_questions(exclusive_turns, words, roles)
+
     return {
         "speakers": speakers,
         "interruptions": interruptions,
@@ -77,6 +80,8 @@ def compute_conversation(turns: list[dict], exclusive_turns: list[dict], words: 
         "avg_turn_sec": round(sum(t["end"] - t["start"] for t in exclusive_turns) / len(exclusive_turns), 2) if exclusive_turns else 0.0,
         "avg_turn_gap_sec": round(sum(gaps) / len(gaps), 2) if gaps else 0.0,
         "unassigned_words": unassigned_words,
+        "question_quality_by_role": question_analysis["question_quality_by_role"],
+        "response_latency_by_role": question_analysis["response_latency_by_role"],
     }
 
 

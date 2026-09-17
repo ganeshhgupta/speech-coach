@@ -289,6 +289,23 @@ function conversationPanel(conv) {
     ? Object.entries(interruptionsByRole).map(([role, n]) => `${escapeHtml(role)} interrupted ${n}x`).join(', ')
     : 'none detected';
 
+  const qualityRows = Object.entries(conv.question_quality_by_role || {}).map(([role, q]) =>
+    `<tr><td>${escapeHtml(displayRole(role))}</td><td>${q.total}</td>` +
+    `<td>${q.open_ended_pct}% (${q['open-ended']} open-ended / ${q.closed} closed / ${q.unclear} unclear)</td></tr>`
+  ).join('');
+
+  const latencyRows = Object.entries(conv.response_latency_by_role || {}).map(([role, r]) =>
+    `<tr><td>Response to ${escapeHtml(displayRole(role))}'s questions</td>` +
+    `<td>${r.avg_response_sec}s avg</td><td>across ${r.n} question${r.n === 1 ? '' : 's'}</td></tr>`
+  ).join('');
+
+  const questionSection = qualityRows ? `
+     <table style="width:100%;font-size:12.5px;margin-top:10px;border-collapse:collapse;">
+       <tr><th style="text-align:left;">Asked by</th><th style="text-align:left;">Questions</th><th style="text-align:left;">Quality</th></tr>
+       ${qualityRows}
+       ${latencyRows}
+     </table>` : '';
+
   return panel('Conversation',
     `${bars}
      <button class="role-swap" onclick="swapRoles()">Swap Interviewer / Interviewee labels</button>
@@ -296,7 +313,8 @@ function conversationPanel(conv) {
        <b>${conv.turn_count}</b> speaker turns, avg <b>${conv.avg_turn_sec}s</b> per turn,
        avg <b>${conv.avg_turn_gap_sec}s</b> gap between turns.<br>
        Interruptions (overlapping speech &gt;0.3s): <b>${conv.interruptions.length}</b> (${interruptionSummary}).
-     </div>`
+     </div>
+     ${questionSection}`
   );
 }
 

@@ -141,6 +141,33 @@ def build_conversation_findings(conv: dict) -> list[Finding]:
             "Noticeable silence between turns; the conversation doesn't flow quickly.",
             f"Average gap between speaker turns: {conv['avg_turn_gap_sec']}s."))
 
+    interviewer_quality = conv.get("question_quality_by_role", {}).get("Interviewer")
+    if interviewer_quality and interviewer_quality["total"] >= 3:
+        pct = interviewer_quality["open_ended_pct"]
+        if pct < 30:
+            findings.append(_finding("watch", "question-quality",
+                "Most interviewer questions were closed/procedural rather than open-ended.",
+                f"{interviewer_quality['open-ended']}/{interviewer_quality['total']} questions "
+                f"({pct}%) classified open-ended; the rest were closed or logistical."))
+        elif pct > 70:
+            findings.append(_finding("info", "question-quality",
+                "Most interviewer questions were open-ended and probing.",
+                f"{interviewer_quality['open-ended']}/{interviewer_quality['total']} questions "
+                f"({pct}%) classified open-ended."))
+
+    interviewee_latency = conv.get("response_latency_by_role", {}).get("Interviewer")
+    if interviewee_latency and interviewee_latency["n"] >= 2:
+        avg = interviewee_latency["avg_response_sec"]
+        if avg > 3.0:
+            findings.append(_finding("watch", "response-latency",
+                "Noticeable hesitation before answering the interviewer's questions.",
+                f"Averaged {avg}s from question end to the interviewee's response "
+                f"across {interviewee_latency['n']} questions."))
+        else:
+            findings.append(_finding("info", "response-latency",
+                "Quick to respond to the interviewer's questions.",
+                f"Averaged {avg}s from question end to response across {interviewee_latency['n']} questions."))
+
     return findings
 
 

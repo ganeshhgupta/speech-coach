@@ -30,6 +30,13 @@ diarization model if you enable two-speaker mode).
   via [pyannote.audio](https://github.com/pyannote/pyannote-audio), talk-ratio,
   turn count, turn-taking gaps, and true overlapping-speech interruption
   detection (not just turn-boundary heuristics)
+- **Question quality**: every question either speaker asks is classified
+  open-ended/probing vs closed/procedural by a transparent linguistic
+  heuristic (starter words + length), no training corpus, no black-box model
+- **Response latency**: average time the other speaker took to start
+  responding to each role's questions, measured from real diarized turn
+  boundaries, so it stays accurate even when someone interrupts or a
+  follow-up comes before the "answer"
 - **Live progress while it works**: a tqdm-style progress bar streamed over
   NDJSON, showing exactly how far into the audio transcription has reached
   and an ETA, not a spinner
@@ -100,6 +107,7 @@ interview-analyzer/
 │       ├── prosody.py         Parselmouth (Praat): pitch, intensity, voiced fraction
 │       ├── diarization.py     pyannote.audio: who's speaking when (two-speaker mode)
 │       ├── conversation.py    talk-ratio, turns, interruptions from diarization + transcript words
+│       ├── question_quality.py  open-ended vs closed question classification, response latency
 │       ├── coach.py           rule-based findings + optional Ollama narrative layer
 │       └── schema.py          dataclasses shared across the pipeline
 ├── frontend/
@@ -125,6 +133,15 @@ talk-ratio, turn count, turn-taking gaps, and interruption events,
 deterministic, no further model calls. Diarization currently assumes exactly
 two speakers (`num_speakers=2`); more speakers would need generalizing the
 role-labeling heuristic beyond binary Interviewer/Interviewee.
+
+`pipeline/question_quality.py` reconstructs sentence-level, timestamped
+question spans from each diarized turn's words, classifies every question
+(either speaker) as open-ended or closed using starter-word and length
+heuristics, and measures response latency by finding the next sentence
+spoken by the *other* speaker after each question, using real turn
+boundaries rather than assuming a strict question-then-answer alternation.
+No training data, no external corpus, no cloud model, the whole classifier
+is the handful of word lists at the top of that file.
 
 ## Configuration
 
