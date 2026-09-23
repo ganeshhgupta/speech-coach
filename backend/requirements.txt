@@ -8,6 +8,7 @@ soundfile==0.12.1
 av==13.1.0
 requests==2.32.3
 anthropic==1.8.0
+python-dotenv==1.2.3
 
 # Optional: only needed for "two speakers" diarization mode. Skip these two
 # (and don't set HUGGINGFACE_TOKEN) to keep the install light; single-speaker

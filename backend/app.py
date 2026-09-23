@@ -9,6 +9,11 @@ import threading
 import time
 import uuid
 
+from dotenv import load_dotenv
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+load_dotenv(os.path.join(BASE_DIR, ".env"))  # must run before importing pipeline modules that read env vars at import time
+
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
@@ -17,7 +22,6 @@ from fastapi.staticfiles import StaticFiles
 from pipeline import audio_io, transcribe, linguistics, prosody, coach, conversation, answer_grading
 from pipeline.schema import Report, PracticeReport
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 FRONTEND_DIR = os.path.join(os.path.dirname(BASE_DIR), "frontend")
 TMP_DIR = os.path.join(os.path.dirname(BASE_DIR), "storage", "tmp")
 os.makedirs(TMP_DIR, exist_ok=True)

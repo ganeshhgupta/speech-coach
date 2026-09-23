@@ -13,3 +13,4 @@ soundfile==0.12.1
 av==13.1.0
 requests==2.32.3
 anthropic==1.8.0
+python-dotenv==1.2.3

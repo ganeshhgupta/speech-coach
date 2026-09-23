@@ -8,7 +8,11 @@ services:
     healthCheckPath: /api/health
     envVars:
       - key: ANTHROPIC_API_KEY
-        sync: false   # set in the Render dashboard, never committed
+        sync: false   # set in the Render dashboard, never committed. Primary grading path here:
+                      # the Docker image doesn't bundle Node/the claude CLI, so CLAUDE_CODE_OAUTH_TOKEN
+                      # (if also set) will fail over to this automatically — see answer_grading.py.
+      - key: CLAUDE_CODE_OAUTH_TOKEN
+        sync: false   # optional; only takes effect if you add Node + `claude` CLI to the Dockerfile
       - key: SC_CLAUDE_MODEL
         value: claude-sonnet-5
       - key: SC_WHISPER_MODEL
