@@ -213,11 +213,15 @@ All optional, read from the environment (`backend/.env`, never committed):
 
 ## Thresholds are heuristic, not clinical
 
-Every cutoff in `coach.py` (e.g. filler rate > 6/min = "flag", pitch CV <
+Every cutoff in `coach.py` (e.g. filler rate > 3/min = "flag", pitch CV <
 0.12 = "monotone") is a reasonable-sounding starting point, not a validated
-clinical norm. Treat findings as signal worth investigating, not verdicts.
-Adjust the constants at the top of `linguistics.py` and the thresholds in
-`coach.py` once you have a feel for your own baseline recordings.
+clinical norm — tuned to a fairly strict, interview-caliber bar rather than
+casual conversation. Treat findings as signal worth investigating, not
+verdicts. Adjust the constants at the top of `linguistics.py` and the
+thresholds in `coach.py` once you have a feel for your own baseline
+recordings. Very short answers (under ~8 words / 3s of speech) skip
+pace/pitch-variation scoring entirely rather than report a number
+extrapolated from too little data.
 
 ## Roadmap / explicitly not built
 

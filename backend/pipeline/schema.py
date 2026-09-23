@@ -81,8 +81,10 @@ class AnswerGrading:
 
 @dataclass
 class DeliveryScore:
-    score: int
-    breakdown: dict  # category -> {penalty: int, note: str}
+    reliable: bool
+    score: Optional[int] = None
+    breakdown: dict = field(default_factory=dict)  # category -> {penalty: int, note: str}
+    unreliable_reason: Optional[str] = None
 
 
 @dataclass

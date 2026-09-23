@@ -7,7 +7,7 @@ import re
 from collections import Counter
 from .schema import LinguisticMetrics, PauseMetrics, Word
 
-FILLERS = ["um", "uh", "erm", "hmm", "like", "basically", "actually",
+FILLERS = ["um", "uh", "ah", "erm", "hmm", "like", "basically", "actually",
            "you know", "i mean", "so yeah", "literally", "right"]
 
 HEDGES = ["maybe", "probably", "perhaps", "i think", "i guess", "i feel like",

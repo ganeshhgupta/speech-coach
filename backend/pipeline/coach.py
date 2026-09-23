@@ -13,6 +13,10 @@ OLLAMA_URL = os.environ.get("SC_OLLAMA_URL", "http://localhost:11434")
 OLLAMA_MODEL = os.environ.get("SC_OLLAMA_MODEL", "llama3.1")
 
 
+MIN_WORDS_FOR_RATE_METRICS = 8
+MIN_SPEAKING_SEC_FOR_RATE_METRICS = 3.0
+
+
 def _finding(severity, category, message, evidence):
     return Finding(severity=severity, category=category, message=message, evidence=evidence)
 
@@ -20,9 +24,16 @@ def _finding(severity, category, message, evidence):
 def build_findings(ling: LinguisticMetrics, pauses: PauseMetrics, prosody: ProsodyMetrics) -> list[Finding]:
     findings: list[Finding] = []
     minutes = max(ling.speaking_time_sec / 60.0, 0.01)
+    # wpm and pitch-CV are extrapolations from too little data below this
+    # much speech (e.g. 1 word / 0.7s -> "83 wpm") — noise, not signal.
+    enough_speech = ling.word_count >= MIN_WORDS_FOR_RATE_METRICS and ling.speaking_time_sec >= MIN_SPEAKING_SEC_FOR_RATE_METRICS
 
     # --- Pace ---
-    if ling.wpm > 170:
+    if not enough_speech:
+        findings.append(_finding("info", "pace",
+            "Too little speech to measure pace reliably.",
+            f"Only {ling.word_count} word(s) over {ling.speaking_time_sec}s."))
+    elif ling.wpm > 170:
         findings.append(_finding("flag", "pace",
             "You speak faster than a comfortable conversational pace.",
             f"{ling.wpm} words/min (comfortable range: ~110-170)."))
@@ -31,24 +42,25 @@ def build_findings(ling: LinguisticMetrics, pauses: PauseMetrics, prosody: Proso
             "Your pace is on the slow side; listeners may lose engagement.",
             f"{ling.wpm} words/min (comfortable range: ~110-170)."))
 
-    # --- Fillers ---
-    if ling.filler_rate_per_min > 6:
+    # --- Fillers --- (thresholds tightened to a FAANG-SWE-interview bar: even
+    # occasional "um"/"uh"/"like" reads as less prepared at that level)
+    if ling.filler_rate_per_min > 3:
         top = sorted(ling.filler_breakdown.items(), key=lambda x: -x[1])[:3]
         findings.append(_finding("flag", "fillers",
             "You use filler words heavily, which can undercut perceived confidence.",
             f"{ling.filler_rate_per_min}/min ({ling.filler_count} total). Top: {top}."))
-    elif ling.filler_rate_per_min > 2:
+    elif ling.filler_rate_per_min > 1:
         findings.append(_finding("watch", "fillers",
             "Moderate filler-word usage.",
             f"{ling.filler_rate_per_min}/min ({ling.filler_count} total)."))
 
     # --- Hedging ---
-    if ling.hedge_rate_per_min > 5:
+    if ling.hedge_rate_per_min > 3:
         top = sorted(ling.hedge_breakdown.items(), key=lambda x: -x[1])[:3]
         findings.append(_finding("flag", "hedging",
             "You hedge frequently, which can read as uncertainty even when you're sure.",
             f"{ling.hedge_rate_per_min}/min ({ling.hedge_count} total). Top: {top}."))
-    elif ling.hedge_rate_per_min > 2:
+    elif ling.hedge_rate_per_min > 1:
         findings.append(_finding("watch", "hedging",
             "Some hedging language present.",
             f"{ling.hedge_rate_per_min}/min ({ling.hedge_count} total)."))
@@ -72,20 +84,29 @@ def build_findings(ling: LinguisticMetrics, pauses: PauseMetrics, prosody: Proso
             "Several segments trail off without a clear end to the thought.",
             f"{ling.trailing_off_count} segments ended without terminal punctuation."))
 
-    # --- Pauses ---
+    # --- Pauses --- (a FAANG-interview answer shouldn't have dead air while
+    # you think out loud; even one or two long pauses now gets flagged)
     long_pause_rate = pauses.long_pause_count / minutes
-    if long_pause_rate > 3:
+    if long_pause_rate > 2:
         findings.append(_finding("flag", "pausing",
             "Frequent long pauses interrupt your flow.",
             f"{pauses.long_pause_count} pauses over {1.2}s "
             f"({round(long_pause_rate, 1)}/min), longest {pauses.longest_pause_sec}s."))
+    elif pauses.long_pause_count >= 1:
+        findings.append(_finding("watch", "pausing",
+            "At least one long pause — try to keep your answer flowing.",
+            f"{pauses.long_pause_count} pause(s) over {1.2}s, longest {pauses.longest_pause_sec}s."))
     elif pauses.pause_count / minutes < 2 and ling.wpm > 150:
         findings.append(_finding("watch", "pausing",
             "You rarely pause, especially at a fast pace — listeners get little room to absorb points.",
             f"only {pauses.pause_count} pauses over {0.4}s across the recording."))
 
     # --- Monotone / pitch variation ---
-    if prosody.pitch_cv is not None:
+    if not enough_speech:
+        findings.append(_finding("info", "vocal-variety",
+            "Too little speech to measure pitch variation reliably.",
+            f"Only {ling.word_count} word(s) over {ling.speaking_time_sec}s."))
+    elif prosody.pitch_cv is not None:
         if prosody.pitch_cv < 0.12:
             findings.append(_finding("flag", "vocal-variety",
                 "Your pitch stays quite flat, which can sound monotone.",
@@ -107,7 +128,21 @@ def build_findings(ling: LinguisticMetrics, pauses: PauseMetrics, prosody: Proso
 def compute_delivery_score(ling: LinguisticMetrics, pauses: PauseMetrics, prosody: ProsodyMetrics) -> DeliveryScore:
     """Deterministic 0-100 delivery score, built from the same thresholds as
     build_findings (no new heuristics) so the score and the findings never
-    disagree with each other."""
+    disagree with each other.
+
+    Metrics like wpm and pitch CV are extrapolations (e.g. 1 word / 0.7s *
+    60 -> "83 wpm") that look like real measurements but are statistical
+    noise from too little data. Below a minimum amount of actual speech,
+    report that plainly instead of a misleading score."""
+    if ling.word_count < MIN_WORDS_FOR_RATE_METRICS or ling.speaking_time_sec < MIN_SPEAKING_SEC_FOR_RATE_METRICS:
+        return DeliveryScore(
+            reliable=False,
+            unreliable_reason=(
+                f"Only {ling.word_count} word(s) / {ling.speaking_time_sec}s of speech detected — "
+                f"too little to reliably measure pace, pitch variation, or structure."
+            ),
+        )
+
     minutes = max(ling.speaking_time_sec / 60.0, 0.01)
     breakdown: dict = {}
 
@@ -121,23 +156,25 @@ def compute_delivery_score(ling: LinguisticMetrics, pauses: PauseMetrics, prosod
     else:
         penalize("pace", 0, f"{ling.wpm} wpm is within the comfortable range.")
 
-    if ling.filler_rate_per_min > 6:
-        penalize("fillers", 15, f"{ling.filler_rate_per_min} filler words/min.")
-    elif ling.filler_rate_per_min > 2:
-        penalize("fillers", 6, f"{ling.filler_rate_per_min} filler words/min.")
+    if ling.filler_rate_per_min > 3:
+        penalize("fillers", 20, f"{ling.filler_rate_per_min} filler words/min.")
+    elif ling.filler_rate_per_min > 1:
+        penalize("fillers", 10, f"{ling.filler_rate_per_min} filler words/min.")
     else:
         penalize("fillers", 0, f"{ling.filler_rate_per_min} filler words/min.")
 
-    if ling.hedge_rate_per_min > 5:
-        penalize("hedging", 10, f"{ling.hedge_rate_per_min} hedge words/min.")
-    elif ling.hedge_rate_per_min > 2:
-        penalize("hedging", 4, f"{ling.hedge_rate_per_min} hedge words/min.")
+    if ling.hedge_rate_per_min > 3:
+        penalize("hedging", 15, f"{ling.hedge_rate_per_min} hedge words/min.")
+    elif ling.hedge_rate_per_min > 1:
+        penalize("hedging", 6, f"{ling.hedge_rate_per_min} hedge words/min.")
     else:
         penalize("hedging", 0, f"{ling.hedge_rate_per_min} hedge words/min.")
 
     long_pause_rate = pauses.long_pause_count / minutes
-    if long_pause_rate > 3:
-        penalize("pausing", 12, f"{round(long_pause_rate, 1)} long pauses/min interrupt your flow.")
+    if long_pause_rate > 2:
+        penalize("pausing", 18, f"{round(long_pause_rate, 1)} long pauses/min interrupt your flow.")
+    elif pauses.long_pause_count >= 1:
+        penalize("pausing", 8, f"{pauses.long_pause_count} long pause(s), longest {pauses.longest_pause_sec}s.")
     elif pauses.pause_count / minutes < 2 and ling.wpm > 150:
         penalize("pausing", 6, "Rarely pauses at a fast pace, listeners get little room to absorb points.")
     else:
@@ -159,7 +196,7 @@ def compute_delivery_score(ling: LinguisticMetrics, pauses: PauseMetrics, prosod
         penalize("structure", 0, f"Avg sentence length {ling.avg_sentence_len_words} words.")
 
     score = max(0, 100 - sum(c["penalty"] for c in breakdown.values()))
-    return DeliveryScore(score=score, breakdown=breakdown)
+    return DeliveryScore(reliable=True, score=score, breakdown=breakdown)
 
 
 def build_conversation_findings(conv: dict) -> list[Finding]:
