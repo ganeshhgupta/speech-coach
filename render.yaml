@@ -4,7 +4,9 @@ services:
     runtime: docker
     dockerfilePath: ./backend/Dockerfile
     dockerContext: .
-    plan: standard   # 2GB RAM recommended for faster-whisper small.en on CPU; starter (512MB) risks OOM
+    plan: free   # 512MB RAM: chosen to match the user's other Render services (all free tier),
+                 # accepting real OOM risk under load. standard (2GB, ~$25/mo) is the safer choice
+                 # if OOM crashes actually show up in practice.
     healthCheckPath: /api/health
     envVars:
       - key: ANTHROPIC_API_KEY
@@ -16,4 +18,4 @@ services:
       - key: SC_CLAUDE_MODEL
         value: claude-sonnet-5
       - key: SC_WHISPER_MODEL
-        value: small.en
+        value: base.en   # smaller than the small.en used locally, to reduce OOM risk on the 512MB free plan

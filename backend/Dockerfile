@@ -11,7 +11,8 @@ COPY backend/requirements-render.txt ./requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Bake the Whisper model into the image so cold starts don't re-download it.
-RUN python -c "from faster_whisper import WhisperModel; WhisperModel('small.en')"
+# base.en (not small.en) to fit the 512MB free-plan RAM ceiling — see render.yaml.
+RUN python -c "from faster_whisper import WhisperModel; WhisperModel('base.en')"
 
 COPY backend/ ./
 COPY frontend/ ../frontend/
