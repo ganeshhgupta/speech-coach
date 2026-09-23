@@ -67,7 +67,31 @@ def _decode_transcribe_analyze(src_path: str, wav_path: str, progress_q: "queue.
             "eta_sec": round(eta, 1) if eta is not None else None,
         })
 
-    full_text, words, segments = transcribe.transcribe_with_progress(wav_path, on_progress=on_progress)
+    # Faster-Whisper only calls on_progress once per segment, and a short,
+    # fluent answer is often a single segment — meaning the HTTP stream could
+    # otherwise go silent for the entire transcription time. On a slow host
+    # that silence is long enough for a proxy or mobile browser to kill the
+    # connection as idle. A heartbeat keeps bytes flowing regardless.
+    heartbeat_stop = threading.Event()
+
+    def heartbeat():
+        while not heartbeat_stop.wait(8.0):
+            progress_q.put({
+                "stage": "transcribing",
+                "progress": 0.0,
+                "duration_sec": round(duration, 1),
+                "elapsed_sec": round(time.monotonic() - t0, 1),
+                "eta_sec": None,
+                "heartbeat": True,
+            })
+
+    heartbeat_thread = threading.Thread(target=heartbeat, daemon=True)
+    heartbeat_thread.start()
+    try:
+        full_text, words, segments = transcribe.transcribe_with_progress(wav_path, on_progress=on_progress)
+    finally:
+        heartbeat_stop.set()
+        heartbeat_thread.join(timeout=1)
     if not words:
         progress_q.put({"stage": "error", "message": "No speech detected in the audio."})
         return None
