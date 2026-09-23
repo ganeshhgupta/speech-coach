@@ -12,14 +12,18 @@ import uuid
 from dotenv import load_dotenv
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-load_dotenv(os.path.join(BASE_DIR, ".env"))  # must run before importing pipeline modules that read env vars at import time
+REPO_ROOT = os.path.dirname(BASE_DIR)
+load_dotenv(os.path.join(BASE_DIR, ".env"))       # manually-set app secrets (ANTHROPIC_API_KEY, ...)
+load_dotenv(os.path.join(REPO_ROOT, ".env.local"))  # Neon-managed vars (DATABASE_URL, AWS_*, NEON_AUTH_*)
+# both must run before importing pipeline modules that read env vars at import time
 
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException
+from fastapi import Depends, FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
-from pipeline import audio_io, transcribe, linguistics, prosody, coach, conversation, answer_grading
+from pipeline import audio_io, transcribe, linguistics, prosody, coach, conversation, answer_grading, db, storage
+from pipeline.auth import get_current_user
 from pipeline.schema import Report, PracticeReport
 
 FRONTEND_DIR = os.path.join(os.path.dirname(BASE_DIR), "frontend")
@@ -37,6 +41,14 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.on_event("startup")
+def _run_startup_migrations():
+    try:
+        db.run_migrations()
+    except Exception as e:  # noqa: BLE001 - don't crash the app if the DB is briefly unreachable at boot
+        print(f"WARNING: practice_sessions migration failed at startup: {e}")
 
 
 def _decode_transcribe_analyze(src_path: str, wav_path: str, progress_q: "queue.Queue", *, min_duration: float = 1.0):
@@ -171,10 +183,10 @@ async def _stream_pipeline(src_path: str, wav_path: str, diarize: bool):
         yield (json.dumps(item) + "\n").encode("utf-8")
 
 
-def _run_practice_worker(src_path: str, wav_path: str, question: str, progress_q: "queue.Queue"):
+def _run_practice_worker(src_path: str, wav_path: str, question: str, user_id: str, progress_q: "queue.Queue"):
     """Runs in a background thread: decode/transcribe/analyze the answer
     recording, grade its correctness against `question`, score its delivery,
-    stream a PracticeReport."""
+    persist it, stream a PracticeReport."""
     try:
         result = _decode_transcribe_analyze(src_path, wav_path, progress_q, min_duration=0.5)
         if result is None:
@@ -200,7 +212,31 @@ def _run_practice_worker(src_path: str, wav_path: str, question: str, progress_q
             delivery_score=delivery,
             answer_grading=grading,
         )
-        progress_q.put({"stage": "done", "report": report.to_dict()})
+        report_dict = report.to_dict()
+
+        # Persist. Best-effort: a storage/DB hiccup shouldn't stop the user
+        # from seeing their just-computed feedback, so a failure here is
+        # surfaced in the report rather than turned into a hard error.
+        progress_q.put({"stage": "saving"})
+        try:
+            session_id = str(uuid.uuid4())
+            recording_key = f"recordings/{user_id}/{session_id}.wav"
+            storage.upload_recording(wav_path, recording_key)
+            db.insert_session(
+                session_id=session_id, user_id=user_id, question=question,
+                transcript=full_text, duration_sec=duration, recording_key=recording_key,
+                linguistics=report_dict["linguistics"], pauses=report_dict["pauses"],
+                prosody=report_dict["prosody"], findings=report_dict["findings"],
+                delivery_score=report_dict["delivery_score"], answer_grading=report_dict["answer_grading"],
+            )
+            report_dict["session_id"] = session_id
+            report_dict["saved"] = True
+        except Exception as e:  # noqa: BLE001 - see comment above
+            report_dict["session_id"] = None
+            report_dict["saved"] = False
+            report_dict["save_error"] = str(e)
+
+        progress_q.put({"stage": "done", "report": report_dict})
     except Exception as e:  # noqa: BLE001 - surfaced to the client as an error event
         progress_q.put({"stage": "error", "message": str(e)})
     finally:
@@ -213,9 +249,9 @@ def _run_practice_worker(src_path: str, wav_path: str, question: str, progress_q
                 pass
 
 
-async def _stream_practice(src_path: str, wav_path: str, question: str):
+async def _stream_practice(src_path: str, wav_path: str, question: str, user_id: str):
     progress_q: "queue.Queue" = queue.Queue()
-    thread = threading.Thread(target=_run_practice_worker, args=(src_path, wav_path, question, progress_q), daemon=True)
+    thread = threading.Thread(target=_run_practice_worker, args=(src_path, wav_path, question, user_id, progress_q), daemon=True)
     thread.start()
 
     loop = asyncio.get_event_loop()
@@ -255,7 +291,8 @@ async def analyze(file: UploadFile = File(...), diarize: bool = Form(False)):
 
 
 @app.post("/api/practice-answer")
-async def practice_answer(file: UploadFile = File(...), question: str = Form(...)):
+async def practice_answer(file: UploadFile = File(...), question: str = Form(...),
+                           user_id: str = Depends(get_current_user)):
     question = question.strip()
     if not question:
         raise HTTPException(400, "Question text is required.")
@@ -265,7 +302,27 @@ async def practice_answer(file: UploadFile = File(...), question: str = Form(...
         raise HTTPException(400, f"Unsupported file type '{ext}'. Allowed: {sorted(ALLOWED_EXT)}")
 
     src_path, wav_path = await _save_upload(file, ext)
-    return StreamingResponse(_stream_practice(src_path, wav_path, question), media_type="application/x-ndjson")
+    return StreamingResponse(_stream_practice(src_path, wav_path, question, user_id), media_type="application/x-ndjson")
+
+
+@app.get("/api/history")
+async def history(user_id: str = Depends(get_current_user)):
+    return db.list_sessions(user_id)
+
+
+@app.get("/api/history/{session_id}")
+async def history_detail(session_id: str, user_id: str = Depends(get_current_user)):
+    session = db.get_session(session_id, user_id)
+    if session is None:
+        raise HTTPException(404, "Not found.")
+    if session["recording_key"]:
+        session["recording_url"] = storage.presign_recording(session["recording_key"])
+    return session
+
+
+@app.get("/api/config")
+async def config():
+    return {"neonAuthBaseUrl": os.environ.get("NEON_AUTH_BASE_URL")}
 
 
 @app.get("/api/health")

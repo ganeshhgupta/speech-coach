@@ -17,3 +17,7 @@ av==13.1.0
 requests==2.32.3
 anthropic==1.8.0
 python-dotenv==1.2.3
+psycopg[binary]==3.3.6
+boto3==1.43.101
+PyJWT==2.15.0
+cryptography==50.0.1

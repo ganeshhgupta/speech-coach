@@ -98,11 +98,70 @@
   .score-sub { color:var(--muted); font-size:13px; }
   .grading-unavailable { font-size:13px; color:var(--muted); }
   ul.point-list { margin:8px 0 0; padding-left:20px; font-size:13px; line-height:1.6; }
+
+  .auth-tabs { display:flex; gap:8px; margin:16px 0; }
+  .auth-tab-btn {
+    background:none; border:1px solid var(--border); color:var(--muted); font-size:13px;
+    padding:6px 14px; border-radius:6px; cursor:pointer;
+  }
+  .auth-tab-btn.active { color:var(--text); border-color:var(--accent); }
+  .auth-panel { display:none; flex-direction:column; gap:10px; max-width:340px; }
+  .auth-panel.active { display:flex; }
+  input.auth-input {
+    background:var(--panel); color:var(--text); border:1px solid var(--border); border-radius:6px;
+    padding:10px 12px; font-size:14px; font-family:inherit;
+  }
+  .user-bar { display:flex; align-items:center; gap:12px; margin-bottom:16px; flex-wrap:wrap; }
+  .history-row {
+    display:flex; justify-content:space-between; align-items:center; gap:10px; padding:10px 0;
+    border-bottom:1px solid var(--border); cursor:pointer; font-size:13px;
+  }
+  .history-row:hover { color:var(--accent); }
+  .history-row .hq { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .history-row .hmeta { color:var(--muted); flex-shrink:0; }
+  .back-link { color:var(--accent); cursor:pointer; font-size:13px; margin-bottom:14px; display:inline-block; }
 </style>
 </head>
 <body>
 <div class="wrap">
   <h1>Speech Coach</h1>
+
+  <div id="authGate">
+    <div class="sub">Sign in to use Speech Coach, save your practice answers, and come back to review them later.</div>
+
+    <div class="auth-tabs">
+      <button class="auth-tab-btn active" id="authTabSignIn" onclick="switchAuthTab('signin')">Sign In</button>
+      <button class="auth-tab-btn" id="authTabSignUp" onclick="switchAuthTab('signup')">Sign Up</button>
+    </div>
+
+    <div id="authPanelSignIn" class="auth-panel active">
+      <input class="auth-input" type="email" id="signinEmail" placeholder="Email" autocomplete="email">
+      <input class="auth-input" type="password" id="signinPassword" placeholder="Password" autocomplete="current-password">
+      <button class="primary" onclick="handleSignIn()">Sign In</button>
+    </div>
+
+    <div id="authPanelSignUp" class="auth-panel">
+      <input class="auth-input" type="text" id="signupName" placeholder="Name" autocomplete="name">
+      <input class="auth-input" type="email" id="signupEmail" placeholder="Email" autocomplete="email">
+      <input class="auth-input" type="password" id="signupPassword" placeholder="Password (min 8 characters)" autocomplete="new-password">
+      <button class="primary" onclick="handleSignUp()">Sign Up</button>
+    </div>
+
+    <div id="authPanelOtp" class="auth-panel">
+      <div class="sub" style="margin-bottom:10px;">We emailed a 6-digit code to <span id="otpEmailLabel"></span>.</div>
+      <input class="auth-input" type="text" id="otpCode" placeholder="6-digit code" inputmode="numeric" maxlength="6">
+      <button class="primary" onclick="handleVerifyOtp()">Verify</button>
+      <button class="rec-btn" onclick="handleResendOtp()">Resend code</button>
+    </div>
+
+    <div class="err" id="authErr" style="display:none;"></div>
+  </div>
+
+  <div id="appShell" style="display:none;">
+  <div class="user-bar">
+    <span id="userEmailLabel" class="sub" style="margin:0;"></span>
+    <button class="rec-btn" onclick="handleSignOut()">Sign Out</button>
+  </div>
 
   <div class="tabs">
     <button class="tab-btn active" id="tabBtnUpload" onclick="switchTab('upload')">Upload Recording</button>
@@ -137,25 +196,34 @@
   </div>
 
   <div class="tab-panel" id="tabPractice">
-    <div class="sub">Paste the question you're answering, record your spoken answer (max 3 min), and get correctness + delivery feedback.</div>
+      <div id="practiceMain">
+        <div class="sub">Paste the question you're answering, record your spoken answer (max 3 min), and get correctness + delivery feedback.</div>
+        <button class="rec-btn" id="historyToggleBtn" onclick="toggleHistoryView()" style="margin-bottom:12px;">History</button>
 
-    <textarea class="question" id="questionInput" placeholder="Paste the interview question you're answering..."></textarea>
+        <textarea class="question" id="questionInput" placeholder="Paste the interview question you're answering..."></textarea>
 
-    <div class="rec-row">
-      <button class="rec-btn" id="recBtn" onclick="toggleRecording()">
-        <span class="dot" id="recDot" style="display:none;"></span>
-        <span id="recBtnLabel">● Record Answer</span>
-      </button>
-      <span class="rec-timer" id="recTimer"></span>
-      <button class="primary" id="submitBtn" style="display:none;" onclick="submitPracticeAnswer()">Submit for Feedback</button>
-      <button class="rec-btn" id="rerecordBtn" style="display:none;" onclick="resetRecording()">Re-record</button>
+        <div class="rec-row">
+          <button class="rec-btn" id="recBtn" onclick="toggleRecording()">
+            <span class="dot" id="recDot" style="display:none;"></span>
+            <span id="recBtnLabel">● Record Answer</span>
+          </button>
+          <span class="rec-timer" id="recTimer"></span>
+          <button class="primary" id="submitBtn" style="display:none;" onclick="submitPracticeAnswer()">Submit for Feedback</button>
+          <button class="rec-btn" id="rerecordBtn" style="display:none;" onclick="resetRecording()">Re-record</button>
+        </div>
+        <div class="rec-hint">Max 3:00 per answer. Recording stops automatically at the limit.</div>
+        <audio class="playback" id="playback" controls style="display:none;"></audio>
+
+        <div class="status" id="pStatus"></div>
+        <div class="progress" id="pProgress"></div>
+        <div id="pResults"></div>
+      </div>
+
+      <div id="historyView" style="display:none;">
+        <div id="historyList"></div>
+        <div id="historyDetail"></div>
+      </div>
     </div>
-    <div class="rec-hint">Max 3:00 per answer. Recording stops automatically at the limit.</div>
-    <audio class="playback" id="playback" controls style="display:none;"></audio>
-
-    <div class="status" id="pStatus"></div>
-    <div class="progress" id="pProgress"></div>
-    <div id="pResults"></div>
   </div>
 </div>
 
@@ -211,6 +279,8 @@ function renderProgress(evt, target = progressEl) {
     target.innerHTML = `<span class="stage">Analyzing acoustics...</span>`;
   } else if (evt.stage === 'grading') {
     target.innerHTML = `<span class="stage">Grading answer with Claude...</span>`;
+  } else if (evt.stage === 'saving') {
+    target.innerHTML = `<span class="stage">Saving to your history...</span>`;
   } else if (evt.stage === 'diarizing') {
     const pct = Math.round((evt.progress || 0) * 100);
     const bar = tqdmBar(evt.progress || 0);
@@ -224,9 +294,9 @@ function renderProgress(evt, target = progressEl) {
 
 // Shared NDJSON streaming client for both /api/analyze and /api/practice-answer.
 // hooks: { onEvent(evt), onDone(report), onError(message), onRequestError(err) }
-async function streamRequest(url, form, hooks) {
+async function streamRequest(url, form, hooks, headers = {}) {
   try {
-    const resp = await fetch(url, { method: 'POST', body: form });
+    const resp = await fetch(url, { method: 'POST', body: form, headers });
     if (!resp.ok) {
       // non-streaming error path (bad input, rejected before streaming starts)
       let detail = 'Request failed.';
@@ -558,6 +628,17 @@ async function submitPracticeAnswer() {
   pStatusEl.textContent = 'Analyzing your answer...';
   submitBtn.disabled = true;
 
+  let jwt;
+  try {
+    jwt = await ensureJwt();
+  } catch (err) {
+    submitBtn.disabled = false;
+    pStatusEl.textContent = '';
+    pResultsEl.innerHTML = `<div class="err">Your session expired. Please sign in again.</div>`;
+    signOutLocally();
+    return;
+  }
+
   const form = new FormData();
   form.append('file', recordedBlob, `answer.${recordExt}`);
   form.append('question', question);
@@ -582,7 +663,7 @@ async function submitPracticeAnswer() {
       submitBtn.disabled = false;
       pResultsEl.innerHTML = `<div class="err">Request failed: ${err}</div>`;
     },
-  });
+  }, { Authorization: `Bearer ${jwt}` });
 }
 
 function scoreClass(score) {
@@ -596,12 +677,18 @@ function pointList(items) {
   return `<ul class="point-list">${items.map(i => `<li>${escapeHtml(i)}</li>`).join('')}</ul>`;
 }
 
-function renderPractice(data) {
+function renderPractice(data, target = pResultsEl) {
   const L = data.linguistics, P = data.pauses, Pr = data.prosody;
   const g = data.answer_grading, d = data.delivery_score;
   let html = '';
 
   html += panel('Question', `<div class="transcript">${escapeHtml(data.question)}</div>`);
+
+  if (data.recording_url) {
+    html += panel('Recording', `<audio class="playback" controls src="${escapeHtml(data.recording_url)}"></audio>`);
+  } else if (data.saved === false) {
+    html += `<div class="err">Not saved to history: ${escapeHtml(data.save_error || 'unknown error')}</div>`;
+  }
 
   if (g && g.available) {
     html += panel('Answer Correctness', `
@@ -657,8 +744,268 @@ function renderPractice(data) {
 
   html += panel('Transcript', `<div class="transcript">${escapeHtml(data.transcript)}</div>`);
 
-  pResultsEl.innerHTML = html;
+  target.innerHTML = html;
 }
+
+// ---- Auth (Neon Auth / Managed Better Auth) ----
+// Session lives in a cross-origin __Secure-*.session_token cookie set by
+// neonAuthBaseUrl (Partitioned/CHIPS, so it survives third-party-cookie
+// blocking on Safari/Chrome). Every call to that origin must pass
+// `credentials: 'include'` for the browser to store/send it — the JSON
+// "token" field in sign-up/sign-in/verify responses is NOT a bearer
+// credential for later requests, it's informational only. GET /token
+// (cookie-authenticated) mints the short-lived JWT this app actually sends
+// to our own backend as `Authorization: Bearer`.
+let neonAuthBaseUrl = null;
+let authState = { jwt: null, jwtExpiresAt: 0, user: null };
+let pendingVerifyEmail = null;
+
+function loadAuthState() {
+  try {
+    const raw = localStorage.getItem('sc_auth');
+    if (raw) authState = JSON.parse(raw);
+  } catch (_) {}
+}
+function saveAuthState() {
+  try { localStorage.setItem('sc_auth', JSON.stringify(authState)); } catch (_) {}
+}
+function signOutLocally() {
+  authState = { jwt: null, jwtExpiresAt: 0, user: null };
+  try { localStorage.removeItem('sc_auth'); } catch (_) {}
+  renderAuthGate();
+}
+function handleSignOut() {
+  authApiFetch('/sign-out', { method: 'POST' }).catch(() => {});
+  signOutLocally();
+}
+
+async function fetchAuthConfig() {
+  const resp = await fetch('/api/config');
+  const data = await resp.json();
+  neonAuthBaseUrl = data.neonAuthBaseUrl;
+}
+
+function authApiFetch(path, opts = {}) {
+  return fetch(`${neonAuthBaseUrl}${path}`, Object.assign({ credentials: 'include' }, opts));
+}
+
+function authErr(msg) {
+  const el = document.getElementById('authErr');
+  if (msg) { el.textContent = msg; el.style.display = 'block'; }
+  else { el.style.display = 'none'; }
+}
+
+function switchAuthTab(which) {
+  authErr(null);
+  document.getElementById('authTabSignIn').classList.toggle('active', which === 'signin');
+  document.getElementById('authTabSignUp').classList.toggle('active', which === 'signup');
+  document.getElementById('authPanelSignIn').classList.toggle('active', which === 'signin');
+  document.getElementById('authPanelSignUp').classList.toggle('active', which === 'signup');
+  document.getElementById('authPanelOtp').classList.remove('active');
+}
+
+function showOtpPanel(email) {
+  pendingVerifyEmail = email;
+  document.getElementById('otpEmailLabel').textContent = email;
+  document.getElementById('authPanelSignIn').classList.remove('active');
+  document.getElementById('authPanelSignUp').classList.remove('active');
+  document.getElementById('authPanelOtp').classList.add('active');
+}
+
+async function mintJwt() {
+  const resp = await authApiFetch('/token');
+  if (!resp.ok) throw new Error('Could not refresh session.');
+  const data = await resp.json();
+  authState.jwt = data.token;
+  authState.jwtExpiresAt = Date.now() + 13 * 60 * 1000; // token is 15min; refresh a bit early
+  saveAuthState();
+  return authState.jwt;
+}
+
+async function ensureJwt() {
+  if (authState.jwt && Date.now() < authState.jwtExpiresAt) return authState.jwt;
+  return mintJwt();
+}
+
+async function authFetch(url, opts = {}) {
+  const jwt = await ensureJwt();
+  const headers = Object.assign({}, opts.headers, { Authorization: `Bearer ${jwt}` });
+  let resp = await fetch(url, Object.assign({}, opts, { headers }));
+  if (resp.status === 401) {
+    const freshJwt = await mintJwt();
+    resp = await fetch(url, Object.assign({}, opts, { headers: Object.assign({}, opts.headers, { Authorization: `Bearer ${freshJwt}` }) }));
+  }
+  return resp;
+}
+
+async function handleSignUp() {
+  authErr(null);
+  const name = document.getElementById('signupName').value.trim();
+  const email = document.getElementById('signupEmail').value.trim();
+  const password = document.getElementById('signupPassword').value;
+  if (!name || !email || !password) { authErr('Fill in all fields.'); return; }
+
+  try {
+    const resp = await authApiFetch('/sign-up/email', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, email, password }),
+    });
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.message || 'Sign up failed.');
+    showOtpPanel(email);
+  } catch (err) {
+    authErr(err.message || String(err));
+  }
+}
+
+async function handleSignIn() {
+  authErr(null);
+  const email = document.getElementById('signinEmail').value.trim();
+  const password = document.getElementById('signinPassword').value;
+  if (!email || !password) { authErr('Fill in all fields.'); return; }
+
+  try {
+    const resp = await authApiFetch('/sign-in/email', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password }),
+    });
+    const data = await resp.json();
+    if (!resp.ok) {
+      if (data.code === 'EMAIL_NOT_VERIFIED') { showOtpPanel(email); return; }
+      throw new Error(data.message || 'Sign in failed.');
+    }
+    authState.user = data.user;
+    saveAuthState();
+    await mintJwt();
+    renderSignedIn();
+  } catch (err) {
+    authErr(err.message || String(err));
+  }
+}
+
+async function handleVerifyOtp() {
+  authErr(null);
+  const otp = document.getElementById('otpCode').value.trim();
+  if (!otp) { authErr('Enter the code.'); return; }
+
+  try {
+    const resp = await authApiFetch('/email-otp/verify-email', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: pendingVerifyEmail, otp }),
+    });
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.message || 'Verification failed.');
+    if (data.token) {
+      authState.user = data.user;
+      saveAuthState();
+      await mintJwt();
+      renderSignedIn();
+    } else {
+      authErr('Verified — sign in now.');
+      switchAuthTab('signin');
+    }
+  } catch (err) {
+    authErr(err.message || String(err));
+  }
+}
+
+async function handleResendOtp() {
+  authErr(null);
+  try {
+    await authApiFetch('/email-otp/send-verification-otp', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: pendingVerifyEmail, type: 'email-verification' }),
+    });
+    authErr('Code resent.');
+  } catch (err) {
+    authErr(err.message || String(err));
+  }
+}
+
+function renderAuthGate() {
+  document.getElementById('authGate').style.display = 'block';
+  document.getElementById('appShell').style.display = 'none';
+}
+
+function renderSignedIn() {
+  document.getElementById('authGate').style.display = 'none';
+  document.getElementById('appShell').style.display = 'block';
+  document.getElementById('userEmailLabel').textContent = authState.user ? authState.user.email : '';
+}
+
+async function initAuth() {
+  await fetchAuthConfig();
+  loadAuthState();
+  // The cookie (not localStorage) is the real source of truth for whether a
+  // session exists — try minting a JWT from it before falling back to the gate.
+  try {
+    const resp = await authApiFetch('/get-session');
+    const data = resp.ok ? await resp.json() : null;
+    if (data && data.user) {
+      authState.user = data.user;
+      await mintJwt();
+      renderSignedIn();
+      return;
+    }
+  } catch (_) {}
+  signOutLocally();
+}
+
+// ---- History ----
+function toggleHistoryView() {
+  const main = document.getElementById('practiceMain');
+  const hist = document.getElementById('historyView');
+  const showingHistory = hist.style.display !== 'none';
+  if (showingHistory) {
+    hist.style.display = 'none';
+    main.style.display = 'block';
+  } else {
+    main.style.display = 'none';
+    hist.style.display = 'block';
+    document.getElementById('historyDetail').innerHTML = '';
+    loadHistoryList();
+  }
+}
+
+async function loadHistoryList() {
+  const listEl = document.getElementById('historyList');
+  listEl.innerHTML = '<div class="sub">Loading...</div>';
+  try {
+    const resp = await authFetch('/api/history');
+    if (!resp.ok) throw new Error('Failed to load history.');
+    const sessions = await resp.json();
+    if (!sessions.length) {
+      listEl.innerHTML = '<div class="sub">No practice sessions yet.</div>';
+      return;
+    }
+    listEl.innerHTML = sessions.map(s => `
+      <div class="history-row" onclick="loadHistoryDetail('${s.id}')">
+        <div class="hq">${escapeHtml(s.question)}</div>
+        <div class="hmeta">${s.delivery_score ?? '—'}/100 delivery · ${new Date(s.created_at).toLocaleString()}</div>
+      </div>
+    `).join('');
+  } catch (err) {
+    listEl.innerHTML = `<div class="err">${escapeHtml(err.message || String(err))}</div>`;
+  }
+}
+
+async function loadHistoryDetail(id) {
+  const detailEl = document.getElementById('historyDetail');
+  detailEl.innerHTML = '<div class="sub">Loading...</div>';
+  try {
+    const resp = await authFetch(`/api/history/${id}`);
+    if (!resp.ok) throw new Error('Failed to load session.');
+    const session = await resp.json();
+    detailEl.innerHTML = `<span class="back-link" onclick="document.getElementById('historyDetail').innerHTML=''">&larr; Back to list</span>`;
+    const wrap = document.createElement('div');
+    detailEl.appendChild(wrap);
+    renderPractice(session, wrap);
+  } catch (err) {
+    detailEl.innerHTML = `<div class="err">${escapeHtml(err.message || String(err))}</div>`;
+  }
+}
+
+initAuth();
 </script>
 </body>
 </html>

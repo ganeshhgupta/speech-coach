@@ -6,3 +6,6 @@ storage/tmp/*
 !storage/tmp/.gitkeep
 *.log
 .pytest_cache/
+.neon
+.env.local
+node_modules/
