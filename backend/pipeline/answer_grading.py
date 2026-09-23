@@ -66,8 +66,7 @@ def _grade_via_cli(question: str, transcript: str, oauth_token: str) -> AnswerGr
             ["claude", "-p", prompt,
              "--system-prompt", _SYSTEM_PROMPT,
              "--model", CLAUDE_MODEL,
-             "--output-format", "json",
-             "--restricted"],
+             "--output-format", "json"],
             env=env, capture_output=True, text=True, timeout=90,
         )
     except FileNotFoundError:
