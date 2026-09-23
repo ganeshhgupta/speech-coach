@@ -1,0 +1,15 @@
+# Same as requirements.txt minus torch/pyannote — used for the Render Docker
+# image to keep it small and the instance cheap. "Two speakers" diarization
+# mode isn't available on Render as a result; it degrades gracefully to the
+# same "speaker detection failed, continuing without it" path used locally
+# when HUGGINGFACE_TOKEN isn't set. Practice Answer mode doesn't need it.
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+python-multipart==0.0.20
+faster-whisper==1.1.1
+praat-parselmouth==0.4.5
+numpy==2.4.6
+soundfile==0.12.1
+av==13.1.0
+requests==2.32.3
+anthropic==1.8.0

@@ -6,7 +6,7 @@ short narrative summary — never as the source of the metrics themselves.
 """
 import os
 import requests
-from .schema import LinguisticMetrics, PauseMetrics, ProsodyMetrics, Finding
+from .schema import LinguisticMetrics, PauseMetrics, ProsodyMetrics, Finding, DeliveryScore
 from .conversation import MIN_INTERRUPTION_SEC
 
 OLLAMA_URL = os.environ.get("SC_OLLAMA_URL", "http://localhost:11434")
@@ -102,6 +102,64 @@ def build_findings(ling: LinguisticMetrics, pauses: PauseMetrics, prosody: Proso
             "All measured metrics fell within the comfortable ranges."))
 
     return findings
+
+
+def compute_delivery_score(ling: LinguisticMetrics, pauses: PauseMetrics, prosody: ProsodyMetrics) -> DeliveryScore:
+    """Deterministic 0-100 delivery score, built from the same thresholds as
+    build_findings (no new heuristics) so the score and the findings never
+    disagree with each other."""
+    minutes = max(ling.speaking_time_sec / 60.0, 0.01)
+    breakdown: dict = {}
+
+    def penalize(category: str, penalty: int, note: str):
+        breakdown[category] = {"penalty": penalty, "note": note}
+
+    if ling.wpm > 170:
+        penalize("pace", 12, f"{ling.wpm} wpm is faster than the ~110-170 comfortable range.")
+    elif ling.wpm < 110:
+        penalize("pace", 8, f"{ling.wpm} wpm is slower than the ~110-170 comfortable range.")
+    else:
+        penalize("pace", 0, f"{ling.wpm} wpm is within the comfortable range.")
+
+    if ling.filler_rate_per_min > 6:
+        penalize("fillers", 15, f"{ling.filler_rate_per_min} filler words/min.")
+    elif ling.filler_rate_per_min > 2:
+        penalize("fillers", 6, f"{ling.filler_rate_per_min} filler words/min.")
+    else:
+        penalize("fillers", 0, f"{ling.filler_rate_per_min} filler words/min.")
+
+    if ling.hedge_rate_per_min > 5:
+        penalize("hedging", 10, f"{ling.hedge_rate_per_min} hedge words/min.")
+    elif ling.hedge_rate_per_min > 2:
+        penalize("hedging", 4, f"{ling.hedge_rate_per_min} hedge words/min.")
+    else:
+        penalize("hedging", 0, f"{ling.hedge_rate_per_min} hedge words/min.")
+
+    long_pause_rate = pauses.long_pause_count / minutes
+    if long_pause_rate > 3:
+        penalize("pausing", 12, f"{round(long_pause_rate, 1)} long pauses/min interrupt your flow.")
+    elif pauses.pause_count / minutes < 2 and ling.wpm > 150:
+        penalize("pausing", 6, "Rarely pauses at a fast pace, listeners get little room to absorb points.")
+    else:
+        penalize("pausing", 0, "Pause pattern is comfortable.")
+
+    if prosody.pitch_cv is not None:
+        if prosody.pitch_cv < 0.12:
+            penalize("vocal-variety", 15, f"Pitch coefficient of variation {prosody.pitch_cv} — flat, sounds monotone.")
+        elif prosody.pitch_cv < 0.18:
+            penalize("vocal-variety", 6, f"Pitch coefficient of variation {prosody.pitch_cv} — somewhat limited.")
+        else:
+            penalize("vocal-variety", 0, f"Pitch coefficient of variation {prosody.pitch_cv} — good variation.")
+    else:
+        penalize("vocal-variety", 0, "Not enough voiced audio to measure pitch variation.")
+
+    if ling.avg_sentence_len_words > 28 or ling.long_sentence_count >= 3:
+        penalize("structure", 8, f"Avg sentence length {ling.avg_sentence_len_words} words, tends toward run-ons.")
+    else:
+        penalize("structure", 0, f"Avg sentence length {ling.avg_sentence_len_words} words.")
+
+    score = max(0, 100 - sum(c["penalty"] for c in breakdown.values()))
+    return DeliveryScore(score=score, breakdown=breakdown)
 
 
 def build_conversation_findings(conv: dict) -> list[Finding]:

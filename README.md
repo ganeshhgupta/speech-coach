@@ -40,12 +40,21 @@ diarization model if you enable two-speaker mode).
 - **Live progress while it works**: a tqdm-style progress bar streamed over
   NDJSON, showing exactly how far into the audio transcription has reached
   and an ETA, not a spinner
+- **Practice Answer mode**: paste the interview question you're answering,
+  record your spoken answer live from the browser mic (max 3 min, auto-stops
+  at the limit), and get back a **correctness/completeness grade** from the
+  Claude API (question + transcript text only, no audio leaves the machine)
+  plus the same deterministic **delivery score** (pace, fillers, pauses,
+  pitch variation) as the rest of the app. Grading degrades gracefully to a
+  "set `ANTHROPIC_API_KEY`" note if the key isn't configured; delivery
+  scoring never depends on it. Recording needs a secure origin
+  (`https://` or `localhost`) — see "Practice Answer mode" below.
 
 ## Quickstart
 
 ```bash
-git clone https://github.com/ganeshhgupta/interview-analyzer.git
-cd interview-analyzer/backend
+git clone https://github.com/ganeshhgupta/speech-coach.git
+cd speech-coach/backend
 python -m venv .venv
 .venv\Scripts\pip install -r requirements.txt      # Windows
 # source .venv/bin/activate && pip install -r requirements.txt   # macOS/Linux
@@ -93,13 +102,54 @@ speaker asks more questions relative to their own talk time is called the
 interviewer. It can guess wrong; use the "Swap" button in the Conversation
 panel to flip it.
 
+## Practice Answer mode
+
+The "Practice Answer" tab records your spoken answer live from the browser
+(push-to-record, like a voice note) instead of uploading a file, grades its
+correctness against a question you paste in, and scores its delivery.
+
+**Secure-origin requirement**: browsers only grant microphone access
+(`getUserMedia`) on `https://` or `localhost`. This works immediately from a
+desktop browser hitting `http://localhost:8731`, but **not** from a phone
+reaching the server over plain `http://` on your LAN — deploy behind HTTPS
+(see "Deploying to Render" below) to use it from an iPhone or other device.
+
+**Correctness grading** needs `ANTHROPIC_API_KEY` in `backend/.env`:
+```
+ANTHROPIC_API_KEY=sk-ant-...
+```
+Without it, the tab still works fully: you get the transcript, delivery
+score, and findings, with a note that correctness grading is off. Only the
+question text and the answer's transcript are ever sent to the Claude API,
+never audio.
+
+## Deploying to Render
+
+`render.yaml` (repo root) and `backend/Dockerfile` deploy this app as a
+single Docker web service with a real HTTPS URL, so Practice Answer's mic
+recording works from a phone. The deploy image uses
+`backend/requirements-render.txt` (same as `requirements.txt` minus
+torch/pyannote) to stay small — **two-speaker diarization is not available
+on Render**; it falls back to the same graceful
+"speaker detection failed, continuing without it" path used locally when
+`HUGGINGFACE_TOKEN` isn't set. Practice Answer mode doesn't use diarization.
+
+1. Push this repo to GitHub (needed for Render's Blueprint deploy).
+2. In the Render dashboard: New → Blueprint → point at the repo → it reads `render.yaml`.
+3. Set `ANTHROPIC_API_KEY` in the service's Environment tab (not in the repo).
+4. The **Standard** plan (2GB RAM) is set in `render.yaml` — recommended
+   minimum for Faster-Whisper `small.en` on CPU; this is a recurring cost
+   while the service is running, so suspend it when you're not practicing.
+
 ## How it works
 
 ```text
-interview-analyzer/
+speech-coach/
 ├── backend/
-│   ├── app.py                 FastAPI: POST /api/analyze (streams NDJSON progress + final report), GET /api/health
+│   ├── app.py                 FastAPI: POST /api/analyze, POST /api/practice-answer (both stream NDJSON), GET /api/health
 │   ├── requirements.txt
+│   ├── requirements-render.txt  same, minus torch/pyannote, for the Render deploy image
+│   ├── Dockerfile             Render deploy image
 │   └── pipeline/
 │       ├── audio_io.py        decode any container -> mono 16kHz WAV (PyAV)
 │       ├── transcribe.py      Faster-Whisper, word-level timestamps, streams per-segment progress
@@ -108,10 +158,12 @@ interview-analyzer/
 │       ├── diarization.py     pyannote.audio: who's speaking when (two-speaker mode)
 │       ├── conversation.py    talk-ratio, turns, interruptions from diarization + transcript words
 │       ├── question_quality.py  open-ended vs closed question classification, response latency
-│       ├── coach.py           rule-based findings + optional Ollama narrative layer
+│       ├── coach.py           rule-based findings + delivery score + optional Ollama narrative layer
+│       ├── answer_grading.py  Claude API: grades answer correctness/completeness against the question
 │       └── schema.py          dataclasses shared across the pipeline
 ├── frontend/
-│   └── index.html             drag-drop upload, live progress bar, report view, no build step, no framework
+│   └── index.html             Upload Recording + Practice Answer tabs, live progress bar, report view, no build step, no framework
+├── render.yaml                 Render Blueprint (Docker web service)
 └── storage/tmp/                per-request scratch space (uploads deleted immediately after analysis)
 ```
 
@@ -156,6 +208,8 @@ All optional, read from the environment (`backend/.env`, never committed):
 | `SC_PYANNOTE_MODEL` | `pyannote/speaker-diarization-3.1` | Diarization model to load |
 | `SC_OLLAMA_URL` | `http://localhost:11434` | Local Ollama server for the optional narrative summary |
 | `SC_OLLAMA_MODEL` | `llama3.1` | Ollama model name |
+| `ANTHROPIC_API_KEY` | unset | Enables Practice Answer mode's correctness grading |
+| `SC_CLAUDE_MODEL` | `claude-sonnet-5` | Claude model used for correctness grading |
 
 ## Thresholds are heuristic, not clinical
 

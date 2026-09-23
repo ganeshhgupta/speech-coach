@@ -67,3 +67,35 @@ class Report:
 
     def to_dict(self):
         return asdict(self)
+
+
+@dataclass
+class AnswerGrading:
+    available: bool
+    correctness_score: Optional[int] = None
+    summary: Optional[str] = None
+    strengths: list = field(default_factory=list)
+    gaps: list = field(default_factory=list)
+    unavailable_reason: Optional[str] = None
+
+
+@dataclass
+class DeliveryScore:
+    score: int
+    breakdown: dict  # category -> {penalty: int, note: str}
+
+
+@dataclass
+class PracticeReport:
+    question: str
+    transcript: str
+    duration_sec: float
+    linguistics: LinguisticMetrics
+    pauses: PauseMetrics
+    prosody: ProsodyMetrics
+    findings: list
+    delivery_score: DeliveryScore
+    answer_grading: AnswerGrading
+
+    def to_dict(self):
+        return asdict(self)

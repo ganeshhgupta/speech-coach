@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: speech-coach
+    runtime: docker
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: .
+    plan: standard   # 2GB RAM recommended for faster-whisper small.en on CPU; starter (512MB) risks OOM
+    healthCheckPath: /api/health
+    envVars:
+      - key: ANTHROPIC_API_KEY
+        sync: false   # set in the Render dashboard, never committed
+      - key: SC_CLAUDE_MODEL
+        value: claude-sonnet-5
+      - key: SC_WHISPER_MODEL
+        value: small.en

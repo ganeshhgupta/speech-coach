@@ -62,34 +62,100 @@
   .llm { font-size: 14px; line-height: 1.6; }
   .err { color: var(--flag); font-size: 13px; margin-top: 12px; }
   .assumptions { font-size: 12px; color: var(--muted); margin-top: 40px; border-top:1px solid var(--border); padding-top:16px; }
+
+  .tabs { display:flex; gap:4px; margin-bottom:20px; border-bottom:1px solid var(--border); }
+  .tab-btn {
+    background:none; border:none; color:var(--muted); font-size:14px; padding:10px 14px;
+    cursor:pointer; border-bottom:2px solid transparent; margin-bottom:-1px;
+  }
+  .tab-btn.active { color:var(--text); border-bottom-color:var(--accent); }
+  .tab-panel { display:none; }
+  .tab-panel.active { display:block; }
+
+  textarea.question {
+    width:100%; min-height:70px; resize:vertical; background:var(--panel); color:var(--text);
+    border:1px solid var(--border); border-radius:8px; padding:12px; font-size:14px; font-family:inherit;
+  }
+  .rec-row { display:flex; align-items:center; gap:14px; margin-top:16px; flex-wrap:wrap; }
+  button.rec-btn {
+    background:var(--panel); color:var(--text); border:1px solid var(--border); border-radius:8px;
+    padding:10px 18px; font-size:14px; cursor:pointer; display:flex; align-items:center; gap:8px;
+  }
+  button.rec-btn.stop { border-color:var(--flag); color:var(--flag); }
+  button.rec-btn:disabled { opacity:.5; cursor:default; }
+  .dot { width:10px; height:10px; border-radius:50%; background:var(--flag); display:inline-block; }
+  .dot.pulse { animation: pulse 1s infinite; }
+  @keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:.25; } }
+  .rec-timer { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size:14px; color:var(--text); }
+  .rec-timer.warn { color:var(--watch); }
+  .rec-hint { font-size:12px; color:var(--muted); }
+  audio.playback { width:100%; margin-top:12px; }
+  .score-big { font-size:40px; font-weight:600; color:var(--text); line-height:1; }
+  .score-big.good { color:var(--info); }
+  .score-big.mid { color:var(--watch); }
+  .score-big.low { color:var(--flag); }
+  .score-row { display:flex; align-items:baseline; gap:10px; }
+  .score-sub { color:var(--muted); font-size:13px; }
+  .grading-unavailable { font-size:13px; color:var(--muted); }
+  ul.point-list { margin:8px 0 0; padding-left:20px; font-size:13px; line-height:1.6; }
 </style>
 </head>
 <body>
 <div class="wrap">
   <h1>Speech Coach</h1>
-  <div class="sub">Upload a single-speaker recording (practice run, presentation, your side of a call). Analyzed fully locally.</div>
 
-  <div class="drop" id="drop">
-    <input type="file" id="fileInput" accept=".wav,.mp3,.m4a,.mp4,.ogg,.flac,.webm">
-    <p><strong>Click to choose a file</strong> or drag one here</p>
-    <p>wav · mp3 · m4a · mp4 · ogg · flac · webm — up to 200MB</p>
+  <div class="tabs">
+    <button class="tab-btn active" id="tabBtnUpload" onclick="switchTab('upload')">Upload Recording</button>
+    <button class="tab-btn" id="tabBtnPractice" onclick="switchTab('practice')">Practice Answer</button>
   </div>
 
-  <label class="diarize-toggle">
-    <input type="checkbox" id="diarizeCheck">
-    Two speakers (interviewer / interviewee): detect talk-ratio and interruptions
-  </label>
+  <div class="tab-panel active" id="tabUpload">
+    <div class="sub">Upload a single-speaker recording (practice run, presentation, your side of a call). Analyzed fully locally.</div>
 
-  <div class="status" id="status"></div>
-  <div class="progress" id="progress"></div>
-  <div id="results"></div>
+    <div class="drop" id="drop">
+      <input type="file" id="fileInput" accept=".wav,.mp3,.m4a,.mp4,.ogg,.flac,.webm">
+      <p><strong>Click to choose a file</strong> or drag one here</p>
+      <p>wav · mp3 · m4a · mp4 · ogg · flac · webm — up to 200MB</p>
+    </div>
 
-  <div class="assumptions">
-    Thresholds (pace, filler/hedge rate, pitch variation, pause frequency) are heuristic
-    starting points, not clinical norms: treat findings as signal to investigate, not verdicts.
-    "Two speakers" mode identifies who's talking via voice, not identity; which speaker is
-    labeled Interviewer vs Interviewee is a guess (more questions asked, relative to their own
-    talk time) and can be wrong; use the swap button if it picked the wrong one.
+    <label class="diarize-toggle">
+      <input type="checkbox" id="diarizeCheck">
+      Two speakers (interviewer / interviewee): detect talk-ratio and interruptions
+    </label>
+
+    <div class="status" id="status"></div>
+    <div class="progress" id="progress"></div>
+    <div id="results"></div>
+
+    <div class="assumptions">
+      Thresholds (pace, filler/hedge rate, pitch variation, pause frequency) are heuristic
+      starting points, not clinical norms: treat findings as signal to investigate, not verdicts.
+      "Two speakers" mode identifies who's talking via voice, not identity; which speaker is
+      labeled Interviewer vs Interviewee is a guess (more questions asked, relative to their own
+      talk time) and can be wrong; use the swap button if it picked the wrong one.
+    </div>
+  </div>
+
+  <div class="tab-panel" id="tabPractice">
+    <div class="sub">Paste the question you're answering, record your spoken answer (max 3 min), and get correctness + delivery feedback.</div>
+
+    <textarea class="question" id="questionInput" placeholder="Paste the interview question you're answering..."></textarea>
+
+    <div class="rec-row">
+      <button class="rec-btn" id="recBtn" onclick="toggleRecording()">
+        <span class="dot" id="recDot" style="display:none;"></span>
+        <span id="recBtnLabel">● Record Answer</span>
+      </button>
+      <span class="rec-timer" id="recTimer"></span>
+      <button class="primary" id="submitBtn" style="display:none;" onclick="submitPracticeAnswer()">Submit for Feedback</button>
+      <button class="rec-btn" id="rerecordBtn" style="display:none;" onclick="resetRecording()">Re-record</button>
+    </div>
+    <div class="rec-hint">Max 3:00 per answer. Recording stops automatically at the limit.</div>
+    <audio class="playback" id="playback" controls style="display:none;"></audio>
+
+    <div class="status" id="pStatus"></div>
+    <div class="progress" id="pProgress"></div>
+    <div id="pResults"></div>
   </div>
 </div>
 
@@ -130,49 +196,42 @@ function tqdmBar(frac, width = 28) {
   return '█'.repeat(filled) + '░'.repeat(width - filled);
 }
 
-function renderProgress(evt) {
+function renderProgress(evt, target = progressEl) {
   if (evt.stage === 'decoding') {
-    progressEl.innerHTML = `<span class="stage">Decoding audio...</span>`;
+    target.innerHTML = `<span class="stage">Decoding audio...</span>`;
   } else if (evt.stage === 'transcribing') {
     const pct = Math.round((evt.progress || 0) * 100);
     const bar = tqdmBar(evt.progress || 0);
-    progressEl.innerHTML =
+    target.innerHTML =
       `<span class="stage">Transcribing</span>  ` +
       `<span class="bar-fill">${bar}</span> ${String(pct).padStart(3)}%  ` +
       `${fmtTime(evt.processed_sec)} / ${fmtTime(evt.duration_sec)}  ` +
       `elapsed ${fmtTime(evt.elapsed_sec)}  ETA ${fmtTime(evt.eta_sec)}`;
   } else if (evt.stage === 'analyzing') {
-    progressEl.innerHTML = `<span class="stage">Analyzing acoustics...</span>`;
+    target.innerHTML = `<span class="stage">Analyzing acoustics...</span>`;
+  } else if (evt.stage === 'grading') {
+    target.innerHTML = `<span class="stage">Grading answer with Claude...</span>`;
   } else if (evt.stage === 'diarizing') {
     const pct = Math.round((evt.progress || 0) * 100);
     const bar = tqdmBar(evt.progress || 0);
-    progressEl.innerHTML =
+    target.innerHTML =
       `<span class="stage">Identifying speakers (${escapeHtml(evt.step || '')})</span>  ` +
       `<span class="bar-fill">${bar}</span> ${String(pct).padStart(3)}%`;
   } else if (evt.stage === 'diarization_error') {
-    progressEl.innerHTML = `<span class="stage">Speaker detection failed, continuing without it: ${escapeHtml(evt.message || '')}</span>`;
+    target.innerHTML = `<span class="stage">Speaker detection failed, continuing without it: ${escapeHtml(evt.message || '')}</span>`;
   }
 }
 
-async function handleFile(file) {
-  resultsEl.innerHTML = '';
-  progressEl.textContent = '';
-  statusEl.textContent = `Analyzing "${file.name}"...`;
-
-  rolesSwapped = false;
-  const form = new FormData();
-  form.append('file', file);
-  form.append('diarize', diarizeCheck.checked ? 'true' : 'false');
-
+// Shared NDJSON streaming client for both /api/analyze and /api/practice-answer.
+// hooks: { onEvent(evt), onDone(report), onError(message), onRequestError(err) }
+async function streamRequest(url, form, hooks) {
   try {
-    const resp = await fetch('/api/analyze', { method: 'POST', body: form });
+    const resp = await fetch(url, { method: 'POST', body: form });
     if (!resp.ok) {
-      // non-streaming error path (bad file type / too large, rejected before streaming starts)
-      let detail = 'Analysis failed.';
+      // non-streaming error path (bad input, rejected before streaming starts)
+      let detail = 'Request failed.';
       try { detail = (await resp.json()).detail || detail; } catch (_) {}
-      statusEl.textContent = '';
-      progressEl.textContent = '';
-      resultsEl.innerHTML = `<div class="err">${detail}</div>`;
+      hooks.onError(detail);
       return;
     }
 
@@ -193,26 +252,50 @@ async function handleFile(file) {
 
         const evt = JSON.parse(line);
         if (evt.stage === 'error') {
-          statusEl.textContent = '';
-          progressEl.textContent = '';
-          resultsEl.innerHTML = `<div class="err">${escapeHtml(evt.message || 'Analysis failed.')}</div>`;
+          hooks.onError(evt.message || 'Request failed.');
           return;
         }
         if (evt.stage === 'done') {
-          statusEl.textContent = 'Done.';
-          progressEl.textContent = '';
-          lastReport = evt.report;
-          render(lastReport);
+          hooks.onDone(evt.report);
           return;
         }
-        renderProgress(evt);
+        hooks.onEvent(evt);
       }
     }
   } catch (err) {
-    statusEl.textContent = '';
-    progressEl.textContent = '';
-    resultsEl.innerHTML = `<div class="err">Request failed: ${err}</div>`;
+    hooks.onRequestError(err);
   }
+}
+
+async function handleFile(file) {
+  resultsEl.innerHTML = '';
+  progressEl.textContent = '';
+  statusEl.textContent = `Analyzing "${file.name}"...`;
+  rolesSwapped = false;
+
+  const form = new FormData();
+  form.append('file', file);
+  form.append('diarize', diarizeCheck.checked ? 'true' : 'false');
+
+  await streamRequest('/api/analyze', form, {
+    onEvent: renderProgress,
+    onDone: (report) => {
+      statusEl.textContent = 'Done.';
+      progressEl.textContent = '';
+      lastReport = report;
+      render(lastReport);
+    },
+    onError: (message) => {
+      statusEl.textContent = '';
+      progressEl.textContent = '';
+      resultsEl.innerHTML = `<div class="err">${escapeHtml(message)}</div>`;
+    },
+    onRequestError: (err) => {
+      statusEl.textContent = '';
+      progressEl.textContent = '';
+      resultsEl.innerHTML = `<div class="err">Request failed: ${err}</div>`;
+    },
+  });
 }
 
 function sevClass(s) { return s === 'flag' ? 'sev-flag' : s === 'watch' ? 'sev-watch' : 'sev-info'; }
@@ -323,6 +406,258 @@ function panel(title, body) {
 }
 function escapeHtml(s) {
   return (s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+// ---- Tabs ----
+function switchTab(name) {
+  const upload = name === 'upload';
+  document.getElementById('tabBtnUpload').classList.toggle('active', upload);
+  document.getElementById('tabBtnPractice').classList.toggle('active', !upload);
+  document.getElementById('tabUpload').classList.toggle('active', upload);
+  document.getElementById('tabPractice').classList.toggle('active', !upload);
+}
+
+// ---- Practice Answer: recording ----
+const MAX_RECORD_SEC = 180;
+const questionInput = document.getElementById('questionInput');
+const recBtn = document.getElementById('recBtn');
+const recBtnLabel = document.getElementById('recBtnLabel');
+const recDot = document.getElementById('recDot');
+const recTimer = document.getElementById('recTimer');
+const submitBtn = document.getElementById('submitBtn');
+const rerecordBtn = document.getElementById('rerecordBtn');
+const playback = document.getElementById('playback');
+const pStatusEl = document.getElementById('pStatus');
+const pProgressEl = document.getElementById('pProgress');
+const pResultsEl = document.getElementById('pResults');
+
+let mediaRecorder = null;
+let mediaStream = null;
+let recordedChunks = [];
+let recordedBlob = null;
+let recordExt = 'webm';
+let recordStart = 0;
+let recordTimerHandle = null;
+let autoStopHandle = null;
+
+function pickMimeAndExt() {
+  const candidates = [
+    ['audio/webm;codecs=opus', 'webm'],
+    ['audio/webm', 'webm'],
+    ['audio/mp4', 'mp4'],   // iOS Safari
+  ];
+  for (const [mime, ext] of candidates) {
+    if (window.MediaRecorder && MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(mime)) {
+      return { mime, ext };
+    }
+  }
+  return { mime: '', ext: 'webm' }; // let the browser pick a default
+}
+
+async function toggleRecording() {
+  if (mediaRecorder && mediaRecorder.state === 'recording') {
+    mediaRecorder.stop();
+    return;
+  }
+  await startRecording();
+}
+
+async function startRecording() {
+  pResultsEl.innerHTML = '';
+  pStatusEl.textContent = '';
+  pProgressEl.textContent = '';
+
+  try {
+    mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  } catch (err) {
+    pResultsEl.innerHTML = `<div class="err">Microphone access failed: ${escapeHtml(err.message || String(err))}. ` +
+      `This requires the page to be loaded over https:// (or localhost).</div>`;
+    return;
+  }
+
+  const { mime, ext } = pickMimeAndExt();
+  recordExt = ext;
+  recordedChunks = [];
+  try {
+    mediaRecorder = mime ? new MediaRecorder(mediaStream, { mimeType: mime }) : new MediaRecorder(mediaStream);
+  } catch (err) {
+    mediaRecorder = new MediaRecorder(mediaStream);
+  }
+
+  mediaRecorder.ondataavailable = (e) => { if (e.data && e.data.size > 0) recordedChunks.push(e.data); };
+  mediaRecorder.onstop = () => {
+    clearInterval(recordTimerHandle);
+    clearTimeout(autoStopHandle);
+    mediaStream.getTracks().forEach(t => t.stop());
+
+    recordedBlob = new Blob(recordedChunks, { type: mediaRecorder.mimeType || `audio/${recordExt}` });
+    playback.src = URL.createObjectURL(recordedBlob);
+    playback.style.display = 'block';
+    submitBtn.style.display = 'inline-block';
+    rerecordBtn.style.display = 'inline-block';
+
+    recBtnLabel.textContent = '● Record Answer';
+    recDot.style.display = 'none';
+    recBtn.classList.remove('stop');
+    recBtn.disabled = true; // must Re-record to start over, avoids overwriting a take by accident
+  };
+
+  recordedBlob = null;
+  playback.style.display = 'none';
+  submitBtn.style.display = 'none';
+  rerecordBtn.style.display = 'none';
+
+  mediaRecorder.start();
+  recordStart = Date.now();
+  recBtnLabel.textContent = '■ Stop';
+  recDot.style.display = 'inline-block';
+  recDot.classList.add('pulse');
+  recBtn.classList.add('stop');
+
+  recordTimerHandle = setInterval(updateRecordTimer, 250);
+  updateRecordTimer();
+  autoStopHandle = setTimeout(() => {
+    if (mediaRecorder && mediaRecorder.state === 'recording') mediaRecorder.stop();
+  }, MAX_RECORD_SEC * 1000);
+}
+
+function updateRecordTimer() {
+  const elapsed = (Date.now() - recordStart) / 1000;
+  recTimer.textContent = `${fmtTime(elapsed)} / ${fmtTime(MAX_RECORD_SEC)}`;
+  recTimer.classList.toggle('warn', elapsed >= MAX_RECORD_SEC - 30);
+}
+
+function resetRecording() {
+  recordedBlob = null;
+  recordedChunks = [];
+  if (playback.src) URL.revokeObjectURL(playback.src);
+  playback.src = '';
+  playback.style.display = 'none';
+  submitBtn.style.display = 'none';
+  rerecordBtn.style.display = 'none';
+  recTimer.textContent = '';
+  recBtn.disabled = false;
+  pStatusEl.textContent = '';
+  pProgressEl.textContent = '';
+  pResultsEl.innerHTML = '';
+}
+
+async function submitPracticeAnswer() {
+  const question = questionInput.value.trim();
+  if (!question) {
+    pResultsEl.innerHTML = `<div class="err">Paste the question you're answering first.</div>`;
+    return;
+  }
+  if (!recordedBlob) {
+    pResultsEl.innerHTML = `<div class="err">Record an answer first.</div>`;
+    return;
+  }
+
+  pResultsEl.innerHTML = '';
+  pProgressEl.textContent = '';
+  pStatusEl.textContent = 'Analyzing your answer...';
+  submitBtn.disabled = true;
+
+  const form = new FormData();
+  form.append('file', recordedBlob, `answer.${recordExt}`);
+  form.append('question', question);
+
+  await streamRequest('/api/practice-answer', form, {
+    onEvent: (evt) => renderProgress(evt, pProgressEl),
+    onDone: (report) => {
+      pStatusEl.textContent = 'Done.';
+      pProgressEl.textContent = '';
+      submitBtn.disabled = false;
+      renderPractice(report);
+    },
+    onError: (message) => {
+      pStatusEl.textContent = '';
+      pProgressEl.textContent = '';
+      submitBtn.disabled = false;
+      pResultsEl.innerHTML = `<div class="err">${escapeHtml(message)}</div>`;
+    },
+    onRequestError: (err) => {
+      pStatusEl.textContent = '';
+      pProgressEl.textContent = '';
+      submitBtn.disabled = false;
+      pResultsEl.innerHTML = `<div class="err">Request failed: ${err}</div>`;
+    },
+  });
+}
+
+function scoreClass(score) {
+  if (score >= 75) return 'good';
+  if (score >= 50) return 'mid';
+  return 'low';
+}
+
+function pointList(items) {
+  if (!items || !items.length) return '';
+  return `<ul class="point-list">${items.map(i => `<li>${escapeHtml(i)}</li>`).join('')}</ul>`;
+}
+
+function renderPractice(data) {
+  const L = data.linguistics, P = data.pauses, Pr = data.prosody;
+  const g = data.answer_grading, d = data.delivery_score;
+  let html = '';
+
+  html += panel('Question', `<div class="transcript">${escapeHtml(data.question)}</div>`);
+
+  if (g && g.available) {
+    html += panel('Answer Correctness', `
+      <div class="score-row">
+        <div class="score-big ${scoreClass(g.correctness_score ?? 0)}">${g.correctness_score ?? '—'}</div>
+        <div class="score-sub">/ 100</div>
+      </div>
+      <div style="margin-top:8px;">${escapeHtml(g.summary || '')}</div>
+      ${g.strengths && g.strengths.length ? `<div class="score-sub" style="margin-top:10px;">Strengths</div>${pointList(g.strengths)}` : ''}
+      ${g.gaps && g.gaps.length ? `<div class="score-sub" style="margin-top:10px;">Gaps</div>${pointList(g.gaps)}` : ''}
+    `);
+  } else {
+    html += panel('Answer Correctness', `
+      <div class="grading-unavailable">
+        Correctness grading unavailable${g && g.unavailable_reason ? `: ${escapeHtml(g.unavailable_reason)}` : ''}.
+        Set <code>ANTHROPIC_API_KEY</code> in <code>backend/.env</code> to enable it.
+        Delivery analysis below is still fully computed.
+      </div>
+    `);
+  }
+
+  const breakdownTree = Object.entries(d.breakdown).map(([cat, b]) =>
+    `<span class="${b.penalty > 10 ? 'sev-flag' : b.penalty > 0 ? 'sev-watch' : 'sev-info'}">[${cat}]</span> -${b.penalty}  ${escapeHtml(b.note)}`
+  ).join('\n');
+  html += panel('Delivery Score', `
+    <div class="score-row">
+      <div class="score-big ${scoreClass(d.score)}">${d.score}</div>
+      <div class="score-sub">/ 100</div>
+    </div>
+    <div class="tree" style="margin-top:12px;">${breakdownTree}</div>
+  `);
+
+  const findingsTree = data.findings.map(f =>
+    `<span class="${sevClass(f.severity)}">${sevSymbol(f.severity)} [${f.category}]</span> ${escapeHtml(f.message)}\n  └─ ${escapeHtml(f.evidence)}`
+  ).join('\n\n');
+  html += panel('Findings', `<div class="tree">${findingsTree}</div>`);
+
+  html += panel('Speech Metrics', `
+    <table>
+      <tr><th>Metric</th><th>Value</th></tr>
+      <tr><td>Duration</td><td>${data.duration_sec}s</td></tr>
+      <tr><td>Speaking rate</td><td>${L.wpm} wpm</td></tr>
+      <tr><td>Word count</td><td>${L.word_count}</td></tr>
+      <tr><td>Filler rate</td><td>${L.filler_rate_per_min}/min (${L.filler_count} total)</td></tr>
+      <tr><td>Hedge rate</td><td>${L.hedge_rate_per_min}/min (${L.hedge_count} total)</td></tr>
+      <tr><td>Avg sentence length</td><td>${L.avg_sentence_len_words} words</td></tr>
+      <tr><td>Pauses (>0.4s)</td><td>${P.pause_count} (longest ${P.longest_pause_sec}s)</td></tr>
+      <tr><td>Long pauses (>1.2s)</td><td>${P.long_pause_count}</td></tr>
+      <tr><td>Pitch mean / variation</td><td>${Pr.pitch_mean_hz ?? '—'} Hz / CV ${Pr.pitch_cv ?? '—'}</td></tr>
+      <tr><td>Intensity mean</td><td>${Pr.intensity_mean_db ?? '—'} dB</td></tr>
+    </table>
+  `);
+
+  html += panel('Transcript', `<div class="transcript">${escapeHtml(data.transcript)}</div>`);
+
+  pResultsEl.innerHTML = html;
 }
 </script>
 </body>
