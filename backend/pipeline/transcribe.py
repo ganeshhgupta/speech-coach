@@ -26,7 +26,9 @@ DEVICE = os.environ.get("SC_WHISPER_DEVICE", "cpu")
 COMPUTE_TYPE = os.environ.get("SC_WHISPER_COMPUTE", "int8")
 
 HF_ASR_MODEL = os.environ.get("SC_HF_ASR_MODEL", "openai/whisper-large-v3")
-HF_API_URL = f"https://api-inference.huggingface.co/models/{HF_ASR_MODEL}"
+# api-inference.huggingface.co (the old classic endpoint) is retired; HF now
+# routes serverless inference through router.huggingface.co per provider.
+HF_API_URL = f"https://router.huggingface.co/hf-inference/models/{HF_ASR_MODEL}"
 
 
 def transcribe(wav_path: str):
