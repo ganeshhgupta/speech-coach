@@ -5,6 +5,7 @@ protected request here just checks that JWT's signature against Neon's
 published JWKS. No callback to Neon per request.
 """
 import os
+from urllib.parse import urlsplit
 
 import jwt
 from fastapi import Header, HTTPException
@@ -19,6 +20,13 @@ def _get_jwks_client() -> "jwt.PyJWKClient":
     return _jwks_client
 
 
+def _issuer_origin() -> str:
+    """The JWT's iss/aud claims are the bare origin (scheme://host), while
+    NEON_AUTH_BASE_URL includes the auth path (.../neondb/auth) — strip it."""
+    parts = urlsplit(os.environ["NEON_AUTH_BASE_URL"])
+    return f"{parts.scheme}://{parts.netloc}"
+
+
 def get_current_user(authorization: str = Header(default=None)) -> str:
     """FastAPI dependency: returns the authenticated user's UUID (the JWT's
     `sub` claim), or raises 401."""
@@ -26,10 +34,10 @@ def get_current_user(authorization: str = Header(default=None)) -> str:
         raise HTTPException(401, "Missing bearer token.")
     token = authorization.removeprefix("Bearer ").strip()
 
-    base_url = os.environ["NEON_AUTH_BASE_URL"]
+    origin = _issuer_origin()
     try:
         signing_key = _get_jwks_client().get_signing_key_from_jwt(token)
-        payload = jwt.decode(token, signing_key.key, algorithms=["EdDSA"], audience=base_url, issuer=base_url)
+        payload = jwt.decode(token, signing_key.key, algorithms=["EdDSA"], audience=origin, issuer=origin)
     except jwt.PyJWTError as e:
         raise HTTPException(401, f"Invalid or expired token: {e}")
 
