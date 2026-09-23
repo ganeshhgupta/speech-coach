@@ -1,4 +1,7 @@
 # Render deploy image for Practice Answer mode (no diarization — see requirements-render.txt).
+# Transcription runs via the Hugging Face Inference API (SC_TRANSCRIBE_BACKEND=hf),
+# not a local Whisper model — the free-tier instance doesn't have the RAM/CPU
+# to run Whisper in-process without OOM-crashing (confirmed live 2026-09-23).
 FROM python:3.11-slim
 
 # soundfile's wheel usually bundles libsndfile, but installing it explicitly
@@ -9,10 +12,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends libsndfile1 \
 WORKDIR /app/backend
 COPY backend/requirements-render.txt ./requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
-
-# Bake the Whisper model into the image so cold starts don't re-download it.
-# base.en (not small.en) to fit the 512MB free-plan RAM ceiling — see render.yaml.
-RUN python -c "from faster_whisper import WhisperModel; WhisperModel('base.en')"
 
 COPY backend/ ./
 COPY frontend/ ../frontend/

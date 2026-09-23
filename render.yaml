@@ -4,9 +4,10 @@ services:
     runtime: docker
     dockerfilePath: ./backend/Dockerfile
     dockerContext: .
-    plan: free   # 512MB RAM: chosen to match the user's other Render services (all free tier),
-                 # accepting real OOM risk under load. standard (2GB, ~$25/mo) is the safer choice
-                 # if OOM crashes actually show up in practice.
+    plan: free   # 512MB RAM: chosen to match the user's other Render services (all free tier).
+                 # Confirmed live (2026-09-23) that running Whisper locally here OOM-crashes the
+                 # instance, which is why transcription is offloaded to the HF Inference API below
+                 # instead of raising the plan.
     healthCheckPath: /api/health
     envVars:
       - key: ANTHROPIC_API_KEY
@@ -17,5 +18,9 @@ services:
         sync: false   # optional; only takes effect if you add Node + `claude` CLI to the Dockerfile
       - key: SC_CLAUDE_MODEL
         value: claude-sonnet-5
-      - key: SC_WHISPER_MODEL
-        value: base.en   # smaller than the small.en used locally, to reduce OOM risk on the 512MB free plan
+      - key: SC_TRANSCRIBE_BACKEND
+        value: hf   # offload transcription to the HF Inference API instead of running Whisper locally — see pipeline/transcribe.py
+      - key: HUGGINGFACE_TOKEN
+        sync: false   # needs "Inference Providers" permission (not just read access) — see README
+      - key: SC_HF_ASR_MODEL
+        value: openai/whisper-large-v3
