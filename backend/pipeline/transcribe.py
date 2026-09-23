@@ -6,10 +6,12 @@ Two backends, chosen by SC_TRANSCRIBE_BACKEND:
   Render's free-tier instance (confirmed OOM-killing it under load).
 - "hf": Hugging Face's hosted Inference API. Offloads the heavy compute off
   the container entirely; used for the Render deploy (see render.yaml).
-  The shared serverless API only returns chunk-level timestamps (not
-  per-word), so word boundaries within a chunk are linearly interpolated —
-  an approximation, good enough for WPM/filler-rate/pause heuristics, not
-  frame-accurate.
+  Uses return_timestamps="word" for real per-word timestamps — NOT the
+  boolean return_timestamps=True, which only returns chunk-level spans
+  (a short answer often comes back as a single chunk spanning the whole
+  clip including any leading/trailing silence, which silently wrecked
+  WPM/pause accuracy when word times were interpolated across it;
+  confirmed live 2026-09-23 against a real recording).
 """
 import base64
 import os
@@ -91,7 +93,7 @@ def _transcribe_via_hf(wav_path: str, on_progress=None):
     with open(wav_path, "rb") as f:
         audio_b64 = base64.b64encode(f.read()).decode("ascii")
 
-    body = {"inputs": audio_b64, "parameters": {"return_timestamps": True}}
+    body = {"inputs": audio_b64, "parameters": {"return_timestamps": "word"}}
     headers = {"Authorization": f"Bearer {token}"}
 
     # The shared serverless model can be "cold" (unloaded) on first call and
@@ -119,35 +121,27 @@ def _transcribe_via_hf(wav_path: str, on_progress=None):
 
         data = resp.json()
         full_text = (data.get("text") or "").strip()
-        chunks = data.get("chunks") or []
-        words = _chunks_to_words(chunks)
-        segments = [
-            {"start": c["timestamp"][0], "end": c["timestamp"][1], "text": c.get("text", "").strip()}
-            for c in chunks
-            if c.get("timestamp") and c["timestamp"][0] is not None and c["timestamp"][1] is not None
-        ]
-        if on_progress and segments:
-            on_progress(segments[-1]["end"])
+        chunks = data.get("chunks") or []  # with return_timestamps="word", each chunk IS one word
+        words = _word_chunks_to_words(chunks)
+        segments = [{"start": w.start, "end": w.end, "text": w.text} for w in words]
+        if on_progress and words:
+            on_progress(words[-1].end)
         return full_text, words, segments
 
     raise RuntimeError(f"HF Inference API did not become ready in time (last error: {last_error}).")
 
 
-def _chunks_to_words(chunks: list) -> list:
-    """HF's shared inference API returns chunk-level timestamps, not
-    per-word. Approximate word boundaries by splitting each chunk's text and
-    linearly spreading it across the chunk's [start, end] span. Good enough
-    for WPM/filler-rate/pause heuristics; not frame-accurate."""
+def _word_chunks_to_words(chunks: list) -> list:
     words: list[Word] = []
     for chunk in chunks:
         text = (chunk.get("text") or "").strip()
         ts = chunk.get("timestamp") or [None, None]
         start, end = ts
-        if start is None or end is None or not text:
+        if not text or start is None:
             continue
-        tokens = text.split()
-        span = max(end - start, 0.01)
-        step = span / len(tokens)
-        for i, tok in enumerate(tokens):
-            words.append(Word(text=tok, start=start + i * step, end=start + (i + 1) * step))
+        # The final word's end timestamp can come back null; fall back to a
+        # short nominal duration rather than a zero-length word.
+        if end is None:
+            end = start + 0.3
+        words.append(Word(text=text, start=start, end=end))
     return words
